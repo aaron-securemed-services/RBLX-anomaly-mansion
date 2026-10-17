@@ -1,5 +1,6 @@
 -- GameManager
--- Runs the game's schedule: 7 days, each with a Day phase then a Night phase.
+-- Runs the game's schedule: 7 days, each with a Day phase then a Night phase
+-- of fixed length.
 -- It moves the sky, tracks the current phase and day number, and counts
 -- down the time left. Other scripts read these values to know what's happening.
 
@@ -26,19 +27,13 @@ local TIME_SCALE = 1
 local DAY_START_HOUR = 6    -- 6:00 AM, sunrise
 local NIGHT_START_HOUR = 18 -- 6:00 PM, sunset
 
--- The schedule: one row per day, lengths in SECONDS.
--- Days get shorter (less time to check in guests) and nights get longer
--- (more time for Dracula) as the week goes on.
--- Each row looks like { day = <seconds>, night = <seconds> }.
-local SCHEDULE = {
-	{ day = 240, night = 120 }, -- Day 1: 4:00 day, 2:00 night (gentle start)
-	{ day = 225, night = 165 }, -- Day 2: 3:45 day, 2:45 night
-	{ day = 210, night = 180 }, -- Day 3: 3:30 day, 3:00 night
-	{ day = 200, night = 195 }, -- Day 4: 3:20 day, 3:15 night
-	{ day = 190, night = 210 }, -- Day 5: 3:10 day, 3:30 night
-	{ day = 180, night = 225 }, -- Day 6: 3:00 day, 3:45 night
-	{ day = 170, night = 240 }, -- Day 7: 2:50 day, 4:00 night
-}
+-- How long each phase lasts, in real SECONDS. These are the same every day.
+-- 210 seconds = 3:30 for the day, 180 seconds = 3:00 for the night.
+local DAY_SECONDS = 210
+local NIGHT_SECONDS = 180
+
+-- How many days the players must survive. 7 days is about 45 minutes in total.
+local TOTAL_DAYS = 7
 
 ------------------------------------------------------------------
 -- SHARED VALUES
@@ -103,19 +98,19 @@ end
 
 ------------------------------------------------------------------
 -- THE GAME LOOP
--- ipairs walks through the SCHEDULE list in order. Each pass gives us
--- the day's number (day) and its row of settings (lengths).
--- In Python this is like: for day, lengths in enumerate(SCHEDULE, 1)
+-- "for day = 1, TOTAL_DAYS do" repeats the block below once for each
+-- day, with day counting 1, 2, 3 ... up to TOTAL_DAYS.
+-- In Python this is like: for day in range(1, TOTAL_DAYS + 1)
 ------------------------------------------------------------------
-for day, lengths in ipairs(SCHEDULE) do
+for day = 1, TOTAL_DAYS do
 	dayNumber.Value = day
 
 	-- Day: the sky goes from sunrise (6) to sunset (18)
-	runPhase("Day", lengths.day, DAY_START_HOUR, NIGHT_START_HOUR)
+	runPhase("Day", DAY_SECONDS, DAY_START_HOUR, NIGHT_START_HOUR)
 
 	-- Night: the sky goes from sunset (18) through midnight to the next
 	-- sunrise. 6 + 24 = 30, which wraps to 6 AM inside runPhase.
-	runPhase("Night", lengths.night, NIGHT_START_HOUR, DAY_START_HOUR + 24)
+	runPhase("Night", NIGHT_SECONDS, NIGHT_START_HOUR, DAY_START_HOUR + 24)
 end
 
 -- The loop finished, so the players lasted all 7 nights.

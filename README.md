@@ -11,6 +11,7 @@ location below and paste the file's contents in.
 | File | Studio location | Type |
 |---|---|---|
 | `src/server/GameManager.server.lua` | ServerScriptService/GameManager | Script |
+| `src/client/ClockHUD.client.lua` | StarterPlayer/StarterPlayerScripts/ClockHUD | LocalScript |
 
 `default.project.json` is an optional [Rojo](https://rojo.space) config for syncing these
 files into Studio automatically later. It isn't needed for the copy/paste workflow.
