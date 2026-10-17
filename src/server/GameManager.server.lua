@@ -1,6 +1,7 @@
 -- GameManager
--- Runs the game's clock. It moves the in-game time forward, updates the
--- sky lighting to match, and tracks whether it is Day, Night, or Dawn.
+-- Runs the game's schedule: 7 days, each with a Day phase then a Night phase.
+-- It moves the sky, tracks the current phase and day number, and counts
+-- down the time left. Other scripts read these values to know what's happening.
 
 ------------------------------------------------------------------
 -- SERVICES
@@ -8,80 +9,115 @@
 -- we can use it. Nearly every script starts with a few of these.
 ------------------------------------------------------------------
 local Lighting = game:GetService("Lighting")           -- controls the sky, sun, and time of day
-local RunService = game:GetService("RunService")       -- lets us run code every frame
+local RunService = game:GetService("RunService")       -- gives us a signal that fires every frame
 local ReplicatedStorage = game:GetService("ReplicatedStorage") -- shared storage that server AND players can see
 
 ------------------------------------------------------------------
 -- SETTINGS
 -- Constants are written in CAPITALS by convention. They're values we
 -- may want to tweak later, kept in one place at the top.
--- ("local" means the variable only exists inside this script.)
 ------------------------------------------------------------------
-local SECONDS_PER_GAME_HOUR = 60 -- 60 real seconds = 1 in-game hour, so a full day is 24 real minutes
-local START_HOUR = 8             -- the game starts at 8:00 AM
 
--- Phase boundaries, as hours on a 24-hour clock (e.g. 21 = 9:00 PM)
-local DAWN_START = 3   -- 3:00 AM
-local DAY_START = 5    -- 5:00 AM
-local NIGHT_START = 21 -- 9:00 PM
+-- Speeds up the whole schedule for testing. 1 = normal speed,
+-- 10 = ten times faster. REMEMBER to set it back to 1 before publishing!
+local TIME_SCALE = 1
+
+-- The sky's in-game hours (24-hour clock). The sun is up from 6 AM to 6 PM.
+local DAY_START_HOUR = 6    -- 6:00 AM, sunrise
+local NIGHT_START_HOUR = 18 -- 6:00 PM, sunset
+
+-- The schedule: one row per day, lengths in SECONDS.
+-- Days get shorter (less time to check in guests) and nights get longer
+-- (more time for Dracula) as the week goes on.
+-- Each row looks like { day = <seconds>, night = <seconds> }.
+local SCHEDULE = {
+	{ day = 240, night = 120 }, -- Day 1: 4:00 day, 2:00 night (gentle start)
+	{ day = 225, night = 165 }, -- Day 2: 3:45 day, 2:45 night
+	{ day = 210, night = 180 }, -- Day 3: 3:30 day, 3:00 night
+	{ day = 200, night = 195 }, -- Day 4: 3:20 day, 3:15 night
+	{ day = 190, night = 210 }, -- Day 5: 3:10 day, 3:30 night
+	{ day = 180, night = 225 }, -- Day 6: 3:00 day, 3:45 night
+	{ day = 170, night = 240 }, -- Day 7: 2:50 day, 4:00 night
+}
 
 ------------------------------------------------------------------
--- FUNCTION: phaseForHour
--- Takes an hour (a number from 0 to 24) and returns the name of the
--- phase for that time, as text. In Python this would be:
---   def phase_for_hour(hour): ...
--- "return" hands a value back to whoever called the function.
+-- SHARED VALUES
+-- These are tiny objects in the game that each hold one value. Putting
+-- them in ReplicatedStorage lets other scripts, including ones running
+-- on the player's screen, read them (for example, to show a clock).
+-- This helper function creates one so we don't repeat ourselves 3 times.
+-- Parameters: className = what kind of value, name = its name in Explorer,
+-- startValue = what it starts as.
 ------------------------------------------------------------------
-local function phaseForHour(hour)
-	-- "or" means either condition can be true. Night is 9 PM onward,
-	-- or anything before 3 AM (after midnight the hour wraps back to 0).
-	if hour >= NIGHT_START or hour < DAWN_START then
-		return "Night"
-	elseif hour < DAY_START then -- here the hour is 3 to 5, so it's Dawn
-		return "Dawn"
-	else                          -- everything else, 5 AM to 9 PM
-		return "Day"
-	end -- every if/function/loop in Luau closes with "end"
+local function makeValue(className, name, startValue)
+	local valueObject = Instance.new(className) -- Instance.new creates a new object
+	valueObject.Name = name                     -- the name it will have in Explorer
+	valueObject.Value = startValue
+	valueObject.Parent = ReplicatedStorage      -- setting the Parent puts it into the game world
+	return valueObject                          -- hand it back so the caller can keep using it
+end
+
+local phase = makeValue("StringValue", "Phase", "Day")     -- "Day", "Night", or "Survived"
+local dayNumber = makeValue("IntValue", "DayNumber", 1)    -- which day of the 7 we're on
+local timeLeft = makeValue("IntValue", "TimeLeft", 0)      -- whole seconds left in this phase
+
+------------------------------------------------------------------
+-- FUNCTION: runPhase
+-- Plays out ONE phase (a Day or a Night) from start to finish.
+--   name       = the phase name to announce ("Day" or "Night")
+--   duration   = how many real seconds the phase lasts
+--   startHour  = the sky's time of day when the phase begins
+--   endHour    = the sky's time of day when the phase ends
+-- The sky slides smoothly from startHour to endHour, so a shorter
+-- phase just means the sun moves faster. It doesn't skip anything.
+------------------------------------------------------------------
+local function runPhase(name, duration, startHour, endHour)
+	duration = duration / TIME_SCALE -- apply the testing speed-up (does nothing when TIME_SCALE is 1)
+	phase.Value = name
+	print("Day", dayNumber.Value, "-", name, "begins")
+
+	local startTime = os.clock() -- seconds since the game started; we measure from this moment
+
+	-- "while true do ... break" loops forever until we say break.
+	while true do
+		local elapsed = os.clock() - startTime
+		if elapsed >= duration then
+			break -- the phase is over, leave the loop
+		end
+
+		-- alpha is how far through the phase we are: 0 at the start, 1 at the end
+		local alpha = elapsed / duration
+
+		-- Slide the sky from startHour to endHour. The % 24 wraps hours past
+		-- midnight back to 0-24 (for example, hour 30 becomes 6 AM).
+		Lighting.ClockTime = (startHour + (endHour - startHour) * alpha) % 24
+
+		-- math.ceil rounds UP, so the countdown reads 1 until it hits 0
+		timeLeft.Value = math.ceil(duration - elapsed)
+
+		RunService.Heartbeat:Wait() -- pause until the next frame, then loop again
+	end
+
+	timeLeft.Value = 0
 end
 
 ------------------------------------------------------------------
--- PHASE VALUE
--- We create a StringValue, a tiny object in the game that holds text.
--- Putting it in ReplicatedStorage lets other scripts, including ones
--- running on the player's screen, read the current phase.
+-- THE GAME LOOP
+-- ipairs walks through the SCHEDULE list in order. Each pass gives us
+-- the day's number (day) and its row of settings (lengths).
+-- In Python this is like: for day, lengths in enumerate(SCHEDULE, 1)
 ------------------------------------------------------------------
-local phase = Instance.new("StringValue") -- Instance.new creates a new object
-phase.Name = "Phase"                       -- the name it will have in Explorer
-phase.Value = phaseForHour(START_HOUR)     -- starting value, e.g. "Day"
-phase.Parent = ReplicatedStorage           -- setting the Parent puts it into the game world
+for day, lengths in ipairs(SCHEDULE) do
+	dayNumber.Value = day
 
-------------------------------------------------------------------
--- THE CLOCK
--- os.clock() returns the seconds elapsed since the program started.
--- We remember the time right now so we can measure how much has
--- passed later.
-------------------------------------------------------------------
-local startTime = os.clock()
+	-- Day: the sky goes from sunrise (6) to sunset (18)
+	runPhase("Day", lengths.day, DAY_START_HOUR, NIGHT_START_HOUR)
 
--- Heartbeat fires every frame (about 60 times a second).
--- :Connect(...) says "run this function every time that happens".
--- This is called an event connection.
-RunService.Heartbeat:Connect(function()
-	-- Real seconds since the game started, divided by 60, gives game hours passed
-	local elapsedHours = (os.clock() - startTime) / SECONDS_PER_GAME_HOUR
+	-- Night: the sky goes from sunset (18) through midnight to the next
+	-- sunrise. 6 + 24 = 30, which wraps to 6 AM inside runPhase.
+	runPhase("Night", lengths.night, NIGHT_START_HOUR, DAY_START_HOUR + 24)
+end
 
-	-- Add the starting hour, then use % (modulo, same as Python) so the
-	-- time wraps back to 0 after 24 instead of counting up forever
-	local hour = (START_HOUR + elapsedHours) % 24
-
-	-- ClockTime is the sky's time of day, so this moves the sun and darkness
-	Lighting.ClockTime = hour
-
-	-- Work out the phase and only act if it changed since last frame.
-	-- Without this check we'd print 60 messages a second.
-	local newPhase = phaseForHour(hour)
-	if phase.Value ~= newPhase then -- "~=" means "not equal" (Python's !=)
-		phase.Value = newPhase
-		print("Phase is now:", newPhase, "at hour", math.floor(hour)) -- math.floor rounds down
-	end
-end)
+-- The loop finished, so the players lasted all 7 nights.
+phase.Value = "Survived"
+print("The week is over - the police arrive! Players survived.")
