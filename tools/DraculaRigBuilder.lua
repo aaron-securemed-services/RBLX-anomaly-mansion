@@ -24,7 +24,7 @@
 
 local TARGET_HEIGHT = 8     -- studs, head to toe (a player is about 5.5)
 local PLACE_IN_CRYPT = true -- stand him in front of his coffin
-local DEMO_PACING = true    -- walk back and forth so you can test the animation
+local DEMO_PACING = false   -- walk back and forth (off: InstallDraculaPowers adds a teleport demo instead)
 local WALK_SPEED = 8        -- slow and menacing (players walk at 16)
 
 ------------------------------------------------------------------------

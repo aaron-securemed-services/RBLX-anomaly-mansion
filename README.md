@@ -19,11 +19,13 @@ location below and paste the file's contents in.
 | `src/server/DoorManager.server.lua` | ServerScriptService/DoorManager | Script |
 | `src/client/GuestCard.client.lua` | StarterPlayer/StarterPlayerScripts/GuestCard | LocalScript |
 | `src/client/KeyBoard.client.lua` | StarterPlayer/StarterPlayerScripts/KeyBoard | LocalScript |
+| `src/server/DraculaPowers.server.lua` | ServerScriptService/DraculaPowers | Script (installed by `tools/InstallDraculaPowers.lua`) |
+| `src/client/BatSwarm.client.lua` | StarterPlayer/StarterPlayerScripts/BatSwarm | LocalScript (installed by `tools/InstallDraculaPowers.lua`) |
 
 The `tools/` scripts are not game scripts. Paste each into the Command Bar, in this order:
 `CastleBuilder.lua` (builds the castle), `LobbyBuilder.lua` (furnishes the lobby), `GuestRoomBuilder.lua`
 (furnishes the 16 guest rooms), `DoorBuilder.lua` (the front double door and 16 guest room doors), `CryptBuilder.lua` (moves your coffin into the Crypt, scales it, and stands it against the back wall
-facing the door; a model named `DraculaCoffin` anywhere in the place works), then `DraculaRigBuilder.lua` (import `Dracula_Rig.glb`, select it, run: builds Dracula as an animated R15 NPC in `Workspace/NPCs/Dracula`, standing on the Crypt's `DraculaSpawn` marker). Re-running CastleBuilder wipes everything, so re-run the others after it.
+facing the door; a model named `DraculaCoffin` anywhere in the place works), then `DraculaRigBuilder.lua` (import `Dracula_Rig.glb`, select it, run: builds Dracula as an animated R15 NPC in `Workspace/NPCs/Dracula`, standing on the Crypt's `DraculaSpawn` marker). Then `InstallDraculaPowers.lua` (optionally import `DraculaFX.glb` first and select it): a shadow pool that follows Dracula, teleporting with a warning pool at the destination, and flapping bats around him, in the corridors at night and around the towers. Other scripts teleport him with `game.ServerStorage.DraculaTeleport:Invoke(target)`. `tools/InstallDraculaPowers.lua` is generated from `tools/templates/InstallDraculaPowers.template.lua` plus the two script files; regenerate it after editing them. Re-running CastleBuilder wipes everything, so re-run the others after it.
 See `DESIGN.md` for the game design and build order.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript (the Castle Builder creates this for you) |
 
