@@ -40,7 +40,8 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
 1. [x] Day/night clock and HUD
 2. [x] Castle (tools/CastleBuilder.lua), lobby (LobbyBuilder.lua) and guest rooms (GuestRoomBuilder.lua)
    - [ ] Furnish common rooms (dining hall, great hall, kitchen, library, parlor)
-   - [ ] Furnish Dracula's areas (crypt, chamber, study, chapel, observatory, ballroom, gallery)
+   - [x] Crypt with Dracula's coffin (CryptBuilder.lua)
+   - [ ] Furnish the rest of Dracula's areas (chamber, study, chapel, observatory) and the ballroom and gallery
    - [ ] Door leaves that open, close and lock (needed for the LockDoor counter)
 3. [ ] Guest arrival, traits and check-in (GuestManager, in progress)
 4. [ ] Clue display for players (guest card UI)
