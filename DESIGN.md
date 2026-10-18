@@ -39,6 +39,8 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
 ## Controls
 - Talk to a guest: **E** (keyboard) or **A** on Xbox / **X (cross)** on PlayStation.
 - Guest card: click/tap, or D-pad/stick to move and A/X to press. **B** / **circle** closes it.
+- Key boards behind the desk: same buttons. They list every room and who is staying in it, with the clues
+  you noticed. A room's key leaves the board when its guest checks in.
 
 ## Build order
 1. [x] Day/night clock and HUD

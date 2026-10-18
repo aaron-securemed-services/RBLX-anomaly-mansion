@@ -16,6 +16,7 @@ location below and paste the file's contents in.
 | `src/shared/GuestTraits.lua` | ReplicatedStorage/GuestTraits | ModuleScript |
 | `src/server/GuestManager.server.lua` | ServerScriptService/GuestManager | Script |
 | `src/client/GuestCard.client.lua` | StarterPlayer/StarterPlayerScripts/GuestCard | LocalScript |
+| `src/client/KeyBoard.client.lua` | StarterPlayer/StarterPlayerScripts/KeyBoard | LocalScript |
 
 The `tools/` scripts are not game scripts. Paste each into the Command Bar, in this order:
 `CastleBuilder.lua` (builds the castle), `LobbyBuilder.lua` (furnishes the lobby), `GuestRoomBuilder.lua`

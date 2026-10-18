@@ -5,12 +5,15 @@
 --   3. lets a player talk to them. That opens the guest card (a screen
 --      shown by the GuestCard LocalScript) with the clues the player
 --      notices, and a list of rooms to choose from,
---   4. checks them in to the room the player picked.
+--   4. checks them in to the room the player picked, and takes that
+--      room's key off the key board.
+-- The two key boards behind the desk are interactive too: press the prompt
+-- and the KeyBoard LocalScript shows every room and who is staying in it.
 -- At night, any guests still waiting in the lobby leave.
 --
 -- Needs: GameManager (for the Phase and DayNumber values),
 --        GuestTraits (ModuleScript in ReplicatedStorage),
---        GuestCard (LocalScript in StarterPlayerScripts),
+--        GuestCard and KeyBoard (LocalScripts in StarterPlayerScripts),
 --        and the castle built by tools/CastleBuilder.lua.
 
 ------------------------------------------------------------------
@@ -36,6 +39,7 @@ local dayNumber = ReplicatedStorage:WaitForChild("DayNumber")
 --   ShowGuestCard   server -> one player: "open the card for this guest"
 --   RequestCheckIn  player -> server:     "check this guest into this room"
 --   CheckInResult   server -> player(s):  "that worked" or "that failed, because..."
+--   ShowKeyBoard    server -> one player: "open the room key board, with this information"
 ------------------------------------------------------------------
 local remotes = ReplicatedStorage:FindFirstChild("Remotes")
 if not remotes then
@@ -58,6 +62,7 @@ end
 local showGuestCard = makeRemote("ShowGuestCard")
 local requestCheckIn = makeRemote("RequestCheckIn")
 local checkInResult = makeRemote("CheckInResult")
+local showKeyBoard = makeRemote("ShowKeyBoard")
 
 ------------------------------------------------------------------
 -- SETTINGS
@@ -187,6 +192,74 @@ local function getRoomList()
 end
 
 ------------------------------------------------------------------
+-- THE KEY BOARDS
+-- Two boards hang behind the desk (built by tools/LobbyBuilder.lua), each
+-- with one gold key per room, named Key_201, Key_202 and so on.
+------------------------------------------------------------------
+
+-- Hides a room's key when its guest checks in (taken = true), or shows it
+-- again (taken = false).
+local function setKeyTaken(number, taken)
+	local keyName = "Key_" .. number
+	for _, part in ipairs(lobby:GetDescendants()) do
+		if part.Name == keyName and part:IsA("BasePart") then
+			part.Transparency = taken and 1 or 0 -- 1 = invisible, 0 = solid
+		end
+	end
+end
+
+-- Builds the list the key board screen shows: every room, and for the
+-- occupied ones, who is staying there and what the player noticed about them.
+local function buildKeyBoardInfo()
+	-- First, find which guest is in which room
+	local guestInRoom = {}
+	for _, guest in pairs(guestByModel) do -- pairs walks every entry in a table
+		if guest.checkedIn then
+			guestInRoom[guest.roomNumber] = guest
+		end
+	end
+
+	local rooms = {}
+	for _, room in ipairs(getRoomList()) do
+		local entry = { number = room.number, occupied = room.occupied }
+		local guest = guestInRoom[room.number]
+		if guest then
+			-- only what the player is allowed to know: never the secret traits
+			entry.guest = { name = guest.name, day = guest.day, clues = guest.clues }
+		end
+		table.insert(rooms, entry)
+	end
+	return rooms
+end
+
+-- Puts a "Check the keys" prompt on each key board
+local boardCount = 0
+for _, part in ipairs(lobby:GetDescendants()) do
+	if part.Name == "KeyBoardBack" and part:IsA("BasePart") and not part:FindFirstChildOfClass("ProximityPrompt") then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Check the keys"
+		prompt.ObjectText = "Room key board"
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 14
+		prompt.RequiresLineOfSight = false
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.GamepadKeyCode = Enum.KeyCode.ButtonA
+		prompt.Parent = part
+
+		prompt.Triggered:Connect(function(player)
+			showKeyBoard:FireClient(player, {
+				rooms = buildKeyBoardInfo(),
+				boardPosition = part.Position, -- the screen closes if the player walks away from here
+			})
+		end)
+		boardCount = boardCount + 1
+	end
+end
+if boardCount == 0 then
+	warn("GuestManager: no key boards found. Run tools/LobbyBuilder.lua to build them.")
+end
+
+------------------------------------------------------------------
 -- FUNCTION: checkIn
 -- Runs when a player asks to check a guest into a room. The server never
 -- trusts the player's screen, so it checks everything again here.
@@ -221,6 +294,7 @@ local function checkIn(guest, player, roomNumber)
 	end
 
 	guest.checkedIn = true
+	guest.roomNumber = roomNumber
 	guest.prompt:Destroy() -- the prompt is no longer needed
 
 	-- Take the guest out of the line and close up the gap
@@ -229,6 +303,7 @@ local function checkIn(guest, player, roomNumber)
 
 	-- Mark the room as taken, and note the room on the guest
 	room:SetAttribute("Occupied", true)
+	setKeyTaken(roomNumber, true) -- the key leaves the board
 	guest.model:SetAttribute("CheckedIn", true)
 	guest.model:SetAttribute("RoomName", room:GetAttribute("RoomName"))
 	guest.model:SetAttribute("RoomNumber", roomNumber)
