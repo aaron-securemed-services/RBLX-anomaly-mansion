@@ -31,7 +31,8 @@ local POOL_SIZE = 10      -- studs across
 local WARNING_TIME = 3    -- seconds the destination pool shows before he arrives
 local SINK_TIME = 1.2     -- seconds to sink into the floor
 local RISE_TIME = 1.2     -- seconds to rise out of the new pool
-local DEMO = true         -- for testing: teleport to a random room every DEMO_EVERY seconds
+local DEMO = false        -- for testing only: set true to make him teleport to a random room every DEMO_EVERY seconds.
+                          -- Leave it false: DraculaManager sends him to guests' rooms now.
 local DEMO_EVERY = 20
 
 local POOL_DARK = Color3.fromRGB(12, 0, 4)

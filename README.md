@@ -17,7 +17,7 @@ location below and paste the file's contents in.
 | `src/server/GuestManager.server.lua` | ServerScriptService/GuestManager | Script |
 | `src/server/DoorControl.lua` | ServerScriptService/DoorControl | **ModuleScript** |
 | `src/server/DoorManager.server.lua` | ServerScriptService/DoorManager | Script |
-| `src/server/DraculaManager.server.lua` | ServerScriptService/DraculaManager | Script |
+| `src/server/DraculaManager.server.lua` | ServerScriptService/DraculaManager | Script (hunts guests; drives the animated `Workspace/NPCs/Dracula` if it exists, otherwise a plain stand-in) |
 | `src/client/GuestCard.client.lua` | StarterPlayer/StarterPlayerScripts/GuestCard | LocalScript |
 | `src/client/KeyBoard.client.lua` | StarterPlayer/StarterPlayerScripts/KeyBoard | LocalScript |
 | `src/server/DraculaPowers.server.lua` | ServerScriptService/DraculaPowers | Script (installed by `tools/InstallDraculaPowers.lua`) |

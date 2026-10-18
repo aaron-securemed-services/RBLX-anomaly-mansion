@@ -1,6 +1,7 @@
 -- DraculaManager
 -- Runs Dracula, the monster. Each night he:
---   1. wakes up in his coffin after a short delay (time for players to lock doors),
+--   1. wakes up in his coffin (DraculaPowers raises him out of a shadow pool),
+--      then waits a short while so players have time to lock doors,
 --   2. picks the guest he wants most: the highest victim score among guests
 --      who aren't protected,
 --   3. walks to that guest's room. A closed door he opens. A locked door he
@@ -11,6 +12,13 @@
 -- If he touches a player, the player is thrown back and stunned for a few seconds.
 -- He never kills players.
 --
+-- Which Dracula: if Workspace > NPCs > Dracula exists (built by
+-- tools/DraculaRigBuilder.lua) this script drives that animated character,
+-- and DraculaPowers handles him rising at nightfall and sinking at dawn.
+-- If he doesn't exist, this script builds a plain stand-in figure instead.
+-- Long trips to a guest's room use DraculaPowers' teleport (a warning pool
+-- opens first), and short trips are walked.
+--
 -- Needs: GameManager (Phase, DayNumber), GuestManager (the guests),
 --        DoorControl and DoorManager (the doors), and the castle.
 
@@ -20,6 +28,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local PathfindingService = game:GetService("PathfindingService") -- finds routes through the castle
 
 local DoorControl = require(ServerScriptService:WaitForChild("DoorControl"))
@@ -32,7 +41,10 @@ local dayNumber = ReplicatedStorage:WaitForChild("DayNumber")
 ------------------------------------------------------------------
 local SETTINGS = {
 	AwakenDelay = 12,           -- seconds after nightfall before he appears
-	WalkSpeed = 12,             -- studs per second. Players walk at 16, so they can outrun him.
+	PlaceholderWalkSpeed = 12,  -- speed of the stand-in Dracula, in studs per second. Players walk at 16.
+	RigWalkSpeed = 0,           -- the animated Dracula keeps his own speed (set in DraculaRigBuilder). Put a number here to override it.
+	TeleportIfFartherThan = 60, -- he teleports to the corridor outside a room when it's farther than this many studs.
+	                            -- 0 = always teleport. A huge number (like 99999) = always walk.
 	HuntsPerNight = { 1, 1, 2, 2, 2, 3, 3 }, -- how many guests he goes after on night 1, 2, 3 ...
 	PauseBetweenHunts = 8,      -- seconds he waits between guests
 	FeedSeconds = 6,            -- how long feeding takes
@@ -77,9 +89,23 @@ end
 ------------------------------------------------------------------
 -- STATE
 ------------------------------------------------------------------
-local dracula = nil        -- his character model, or nil when he isn't out
+-- The animated Dracula, if you built one with tools/DraculaRigBuilder.lua
+local npcs = workspace:WaitForChild("NPCs", 5)
+local rig = npcs and npcs:FindFirstChild("Dracula")
+local usingRig = rig ~= nil
+
+local dracula = nil        -- his character model (nil while the stand-in isn't out)
 local draculaHumanoid = nil
 local draculaRoot = nil
+if usingRig then
+	-- the rig is always there. DraculaPowers hides him by day and shows him by night.
+	dracula = rig
+	draculaHumanoid = rig:WaitForChild("Humanoid")
+	draculaRoot = rig:WaitForChild("HumanoidRootPart")
+	if SETTINGS.RigWalkSpeed > 0 then
+		draculaHumanoid.WalkSpeed = SETTINGS.RigWalkSpeed
+	end
+end
 local nightToken = 0       -- a number that changes every night, so an old night's thread can tell it should stop
 local stunnedUntil = {}    -- player -> the time (os.clock) until which they can't be stunned again
 
@@ -132,7 +158,7 @@ local function buildDracula()
 	model.Name = "Dracula"
 	local humanoid = model:WaitForChild("Humanoid")
 	humanoid.DisplayName = "Dracula"
-	humanoid.WalkSpeed = SETTINGS.WalkSpeed
+	humanoid.WalkSpeed = SETTINGS.PlaceholderWalkSpeed
 	humanoid.JumpPower = 0
 	humanoid.MaxHealth = 1e9 -- he can't be hurt
 	humanoid.Health = 1e9
@@ -184,25 +210,39 @@ local function buildDracula()
 	return model, humanoid, root
 end
 
-local function spawnDracula()
-	if dracula then
-		return
+-- Gets Dracula out and ready. Returns false if the night ended while waiting.
+local function spawnDracula(token)
+	if usingRig then
+		-- DraculaPowers raises him out of a shadow pool at nightfall and sets his Awake
+		-- attribute to true when he is up. Wait for that. (With no powers script he has
+		-- no Awake attribute at all, and we treat him as always out.)
+		local waited = 0
+		while rig:GetAttribute("Awake") == false and waited < 20 do
+			waited = waited + task.wait(0.25)
+			if not stillNight(token) then
+				return false
+			end
+		end
+	elseif not dracula then
+		dracula, draculaHumanoid, draculaRoot = buildDracula()
+		dracula.Parent = workspace
+		dracula:PivotTo(CFrame.new(getSpawnPosition()))
+		pcall(function()
+			draculaRoot:SetNetworkOwner(nil) -- keep his movement on the server, so players can't push it around
+		end)
 	end
-	dracula, draculaHumanoid, draculaRoot = buildDracula()
-	dracula.Parent = workspace
-	dracula:PivotTo(CFrame.new(getSpawnPosition()))
-	pcall(function()
-		draculaRoot:SetNetworkOwner(nil) -- keep his movement on the server, so players can't push it around
-	end)
 	local coffin = castle:FindFirstChild("DraculaCoffin", true)
 	if coffin then
 		coffin:SetAttribute("IsOpen", true) -- other scripts can react to the coffin opening
 	end
-	print("Dracula has awoken.")
+	print("Dracula is ready to hunt.")
+	return stillNight(token)
 end
 
+-- Ends his night. The animated Dracula is put to bed by DraculaPowers at dawn, so
+-- only the stand-in is removed here.
 local function despawnDracula()
-	if dracula then
+	if not usingRig and dracula then
 		dracula:Destroy()
 		dracula, draculaHumanoid, draculaRoot = nil, nil, nil
 	end
@@ -222,15 +262,15 @@ local function handleDoorsAt(position)
 	for _, door in ipairs(DoorControl.getDoors()) do
 		-- Breaking a door takes seconds, and dawn can come meanwhile and send him
 		-- home. So after every wait we check he is still out.
-		if not dracula then
-			return true -- he's gone; walkTo notices and stops
+		if not dracula or phase.Value ~= "Night" then
+			return true -- he's gone, or it's day; walkTo notices and stops
 		end
 		local anchor = door:FindFirstChild("PromptAnchor")
 		if anchor and flatDistance(anchor.Position, position) < SETTINGS.DoorReach
 			and not door:GetAttribute("IsOpen") and not door:GetAttribute("IsBroken") then
 			draculaHumanoid:MoveTo(draculaRoot.Position) -- stop and deal with the door
 			local through = DoorControl.breakDown(door)
-			if not dracula then
+			if not dracula or phase.Value ~= "Night" then
 				return true
 			end
 			if not through then
@@ -291,8 +331,8 @@ local function walkTo(goal, token, deadline)
 	return "arrived"
 end
 
--- If no walking route exists (for example, a staircase he can't use), he drifts
--- there as mist instead: he vanishes and reappears outside the guest's door.
+-- Used only by the stand-in Dracula (the animated one teleports instead): if no
+-- walking route exists, he vanishes and reappears outside the guest's door.
 local function mistTo(roomNumber)
 	local door = DoorControl.getGuestDoor(roomNumber)
 	local anchor = door and door:FindFirstChild("PromptAnchor")
@@ -437,6 +477,22 @@ end
 ------------------------------------------------------------------
 -- ONE HUNT: choose a guest, get to their room, feed
 ------------------------------------------------------------------
+-- Teleports the animated Dracula to the corridor just outside a guest's door.
+-- DraculaPowers opens a warning pool there first, so players get a few seconds'
+-- notice. This waits until he has arrived. Returns true if he did.
+local function teleportToDoor(roomNumber)
+	local teleport = ServerStorage:FindFirstChild("DraculaTeleport")
+	local door = DoorControl.getGuestDoor(roomNumber)
+	local anchor = door and door:FindFirstChild("PromptAnchor")
+	if not (usingRig and teleport and anchor) then
+		return false
+	end
+	-- the corridor is on the side of the door nearest z = 0, so step 8 studs that way
+	local towardCorridor = (anchor.Position.Z > 0) and -1 or 1
+	local spot = anchor.Position + Vector3.new(0, 0, towardCorridor * 8)
+	return teleport:Invoke(spot) == true
+end
+
 local function hunt(guest, token)
 	guest:SetAttribute("HuntedTonight", true)
 	local deadline = os.clock() + SETTINGS.HuntTimeLimit
@@ -444,17 +500,32 @@ local function hunt(guest, token)
 	if not guestRoot then
 		return
 	end
-	print("Dracula hunts " .. guest.Name .. " in room " .. tostring(guest:GetAttribute("RoomNumber")))
+	local roomNumber = guest:GetAttribute("RoomNumber")
+	print("Dracula hunts " .. guest.Name .. " in room " .. tostring(roomNumber))
+
+	-- A long way off? Teleport to the corridor outside the door first.
+	local distance = (draculaRoot.Position - guestRoot.Position).Magnitude
+	if usingRig and distance > SETTINGS.TeleportIfFartherThan then
+		teleportToDoor(roomNumber)
+		if not stillNight(token) then
+			return
+		end
+	end
 
 	local result = walkTo(guestRoot.Position, token, deadline)
 	if result == "nopath" then
-		-- no walking route: drift to the door as mist, then walk the last bit
-		if mistTo(guest:GetAttribute("RoomNumber")) then
-			result = walkTo(guestRoot.Position, token, deadline)
-			if result == "nopath" then
-				result = "arrived" -- still no route, so he reaches them through the wall as mist
-				dracula:PivotTo(guestRoot.CFrame * CFrame.new(0, 0, 4))
+		-- no walking route from here (a staircase he can't use, say)
+		if usingRig then
+			if teleportToDoor(roomNumber) and stillNight(token) then
+				result = walkTo(guestRoot.Position, token, deadline)
 			end
+		elseif mistTo(roomNumber) then
+			result = walkTo(guestRoot.Position, token, deadline)
+		end
+		if result == "nopath" and dracula and stillNight(token) then
+			-- still no route: he reaches them straight through the wall, as shadow
+			dracula:PivotTo(guestRoot.CFrame * CFrame.new(0, 0, 4))
+			result = "arrived"
 		end
 	end
 
@@ -515,16 +586,19 @@ local function stunPlayer(player, character, root)
 	end)
 end
 
--- Watches for players near him for as long as he is out
-local function watchForPlayers(model)
+-- Watches for players near him for as long as it is still the same night
+local function watchForPlayers(token)
 	task.spawn(function()
-		while dracula == model do
-			for _, player in ipairs(Players:GetPlayers()) do
-				local character = player.Character
-				local root = character and character:FindFirstChild("HumanoidRootPart")
-				if root and draculaRoot and (root.Position - draculaRoot.Position).Magnitude < SETTINGS.ContactDistance
-					and (stunnedUntil[player] or 0) < os.clock() then
-					stunPlayer(player, character, root)
+		while stillNight(token) and dracula do
+			-- (while he sinks, rises or teleports he is locked in place, so he can't touch anyone)
+			if draculaRoot and not draculaRoot.Anchored then
+				for _, player in ipairs(Players:GetPlayers()) do
+					local character = player.Character
+					local root = character and character:FindFirstChild("HumanoidRootPart")
+					if root and (root.Position - draculaRoot.Position).Magnitude < SETTINGS.ContactDistance
+						and (stunnedUntil[player] or 0) < os.clock() then
+						stunPlayer(player, character, root)
+					end
 				end
 			end
 			task.wait(0.2)
@@ -549,8 +623,10 @@ local function runNight(day)
 	if not waitDuringNight(SETTINGS.AwakenDelay, token) then
 		return
 	end
-	spawnDracula()
-	watchForPlayers(dracula)
+	if not spawnDracula(token) then
+		return
+	end
+	watchForPlayers(token)
 
 	local hunts = SETTINGS.HuntsPerNight[day] or SETTINGS.HuntsPerNight[#SETTINGS.HuntsPerNight]
 	for number = 1, hunts do

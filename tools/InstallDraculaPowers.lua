@@ -167,7 +167,8 @@ local POOL_SIZE = 10      -- studs across
 local WARNING_TIME = 3    -- seconds the destination pool shows before he arrives
 local SINK_TIME = 1.2     -- seconds to sink into the floor
 local RISE_TIME = 1.2     -- seconds to rise out of the new pool
-local DEMO = true         -- for testing: teleport to a random room every DEMO_EVERY seconds
+local DEMO = false        -- for testing only: set true to make him teleport to a random room every DEMO_EVERY seconds.
+                          -- Leave it false: DraculaManager sends him to guests' rooms now.
 local DEMO_EVERY = 20
 
 local POOL_DARK = Color3.fromRGB(12, 0, 4)
@@ -866,4 +867,4 @@ if not dracula then
 	warn("No Workspace > NPCs > Dracula yet. Run DraculaRigBuilder.lua first, or the powers script will wait for him.")
 end
 
-print("Dracula's powers installed! He sleeps by day. At nightfall he rises from a shadow pool by his coffin, bats circle him, and every 20 seconds he teleports to a random room. At dawn he sinks back into his pool.")
+print("Dracula's powers installed! He sleeps by day. At nightfall he rises from a shadow pool by his coffin and bats circle him. DraculaManager sends him to hunt guests, using his teleport for long trips. At dawn he sinks back into his pool.")

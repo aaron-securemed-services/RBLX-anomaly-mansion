@@ -154,4 +154,4 @@ if not dracula then
 	warn("No Workspace > NPCs > Dracula yet. Run DraculaRigBuilder.lua first, or the powers script will wait for him.")
 end
 
-print("Dracula's powers installed! He sleeps by day. At nightfall he rises from a shadow pool by his coffin, bats circle him, and every 20 seconds he teleports to a random room. At dawn he sinks back into his pool.")
+print("Dracula's powers installed! He sleeps by day. At nightfall he rises from a shadow pool by his coffin and bats circle him. DraculaManager sends him to hunt guests, using his teleport for long trips. At dawn he sinks back into his pool.")
