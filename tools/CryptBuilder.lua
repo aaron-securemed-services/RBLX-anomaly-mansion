@@ -3,37 +3,46 @@
   CRYPT BUILDER  -  Dracula's BnB
 =======================================================================
   Furnishes Dracula's Crypt (run CastleBuilder.lua first):
-    * finds your imported coffin model and places it in the middle of
-      the crypt, lying flat, scaled to a sensible length
-    * a stone dais for it to rest on
-    * a red runner from the crypt door to the dais
-    * four iron candle stands around the coffin
+    * finds your coffin and MOVES it into the Crypt model
+    * makes it bigger (COFFIN_SCALE times its current size)
+    * stands it against the back wall, directly opposite the door and
+      facing it, on a low stone platform
+    * a red runner from the crypt door to the platform
+    * two iron candle stands beside the platform
     * hidden markers for game scripts:
-        CoffinSpot    on top of the coffin, where Dracula lies
-        DraculaSpawn  on the floor beside the dais, where he appears
+        CoffinSpot    in front of the coffin, where Dracula steps out
+        DraculaSpawn  on the floor in front of the platform
+
+  The coffin keeps whichever way up you have it (standing, lying, ...).
+  This script only turns it around to face the door, so stand it up
+  yourself first if you want it upright.
 
   HOW TO USE
     1. Stop Play mode first (anything built while testing is lost).
-    2. Import your coffin into Studio (it needs to exist in the place).
-       Best home for it: ServerStorage > Assets. This script looks for
-       anything with "coffin" in its name in ServerStorage,
-       ReplicatedStorage and Workspace (outside the castle), so any of
-       those work, and re-running the castle builder won't delete it.
+    2. Have your coffin model somewhere in the place. This script looks
+       for a Model called "DraculaCoffin" first inside the castle
+       (it gets MOVED into the Crypt), then anything with "coffin" in
+       its name in ServerStorage, ReplicatedStorage or Workspace (it
+       gets COPIED, so the original stays where it is).
     3. Open the Command Bar, paste this WHOLE file in and click Run.
        You'll see "Crypt built!" in the Output window.
 
-  Running it again removes the old crypt furniture and builds it fresh.
-  (Running CastleBuilder again wipes the castle, so run this afterwards.)
+  Running it again rebuilds the platform and candles, and re-places
+  the coffin without making it any bigger. (Changing COFFIN_SCALE and
+  running again changes its size, because the size is always worked out
+  from the coffin's original size, which is remembered.)
 
-  SETTINGS below let you change the coffin's length and how it's turned.
+  SETTINGS below let you change the size and which way it faces.
 =======================================================================
 ]]
 
 ------------------------------------------------------------------------
 -- 1. SETTINGS
 ------------------------------------------------------------------------
-local COFFIN_LENGTH = 9     -- studs, head to foot. A character is about 5 studs tall.
-local TURN_COFFIN = 0       -- extra turn in degrees (try 180 to swap head and foot)
+local COFFIN_SCALE = 2     -- times bigger than the coffin's size when this first runs
+local TURN_COFFIN = 0      -- if the coffin faces the wrong way, try 90, 180 or 270 here
+local PLATFORM_HEIGHT = 1  -- studs. How high the stone platform is.
+local WALL_GAP = 0.3       -- studs of space between the coffin's back and the wall
 
 local COLORS = {
 	Slate  = Color3.fromRGB(75, 72, 70),
@@ -62,36 +71,83 @@ if not zone then
 	error("Couldn't find the Crypt (or its Zone) inside DraculaCastle.")
 end
 
--- Look for something called "...coffin..." in the places you might have put it
-local source
-for _, place in ipairs({ game:GetService("ServerStorage"), game:GetService("ReplicatedStorage"), workspace }) do
-	for _, object in ipairs(place:GetDescendants()) do
-		local isModel = object:IsA("Model") or object:IsA("MeshPart")
-		if isModel and string.find(string.lower(object.Name), "coffin") and not object:IsDescendantOf(castle)
-			and not object:GetAttribute("CryptBuilder") then
-			source = object
-			break
+-- Finds the coffin. Returns the coffin and true if it's a copy
+-- (the original stays where it is), or false if we're moving the original.
+local function findCoffin()
+	-- 1. Already in the crypt (from an earlier run, or one the old crypt builder made).
+	-- We only want the Model, not the mesh inside it that has the same name.
+	for _, object in ipairs(crypt:GetDescendants()) do
+		if object:IsA("Model") and object.Name == "DraculaCoffin" then
+			return object, false
 		end
 	end
-	if source then break end
+
+	-- 2. Somewhere else in the castle (like a CastleFurniture folder): we'll move it
+	for _, object in ipairs(castle:GetDescendants()) do
+		if object:IsA("Model") and object.Name == "DraculaCoffin" then
+			return object, false
+		end
+	end
+
+	-- 3. Outside the castle (like ServerStorage): we'll copy it
+	for _, place in ipairs({ game:GetService("ServerStorage"), game:GetService("ReplicatedStorage"), workspace }) do
+		for _, object in ipairs(place:GetDescendants()) do
+			local isCoffin = (object:IsA("Model") or object:IsA("MeshPart"))
+				and string.find(string.lower(object.Name), "coffin") ~= nil
+			if isCoffin and not object:IsDescendantOf(castle) then
+				return object, true
+			end
+		end
+	end
+	return nil, false
 end
+
+local source, isCopy = findCoffin()
 if not source then
-	error("Couldn't find your coffin. Import it, then put it in ServerStorage (a model with 'coffin' in its name).")
+	error("Couldn't find your coffin. Put a model called 'DraculaCoffin' anywhere in the place.")
 end
-print("Using coffin: " .. source:GetFullName())
+print("Using coffin: " .. source:GetFullName() .. (isCopy and " (copying it)" or " (moving it into the Crypt)"))
 
 local recording
 pcall(function() recording = ChangeHistoryService:TryBeginRecording("Build Crypt") end)
 
--- Remove things from an earlier run, and the castle builder's block placeholder
+------------------------------------------------------------------------
+-- 3. TAKE THE COFFIN, THEN CLEAR OUT THE OLD CRYPT FURNITURE
+-- We take the coffin first, because an older version of this script
+-- kept it inside a folder that gets deleted below.
+------------------------------------------------------------------------
+local coffin
+if isCopy then
+	coffin = source:Clone()
+	if coffin:IsA("BasePart") then
+		-- a lone mesh: wrap it in a Model so we can move and scale it as one
+		local wrapper = Instance.new("Model")
+		coffin.Parent = wrapper
+		wrapper.PrimaryPart = coffin
+		coffin = wrapper
+	end
+else
+	coffin = source
+end
+coffin.Name = "DraculaCoffin"
+coffin.Parent = crypt                  -- this is the "move into the Crypt" step
+coffin:SetAttribute("CryptBuilder", nil) -- so the cleanup below can't delete it
+coffin:SetAttribute("IsOpen", false)
+for _, d in ipairs(coffin:GetDescendants()) do
+	if d:IsA("BasePart") then
+		d.Anchored = true
+	end
+end
+
+-- Remove furniture from an earlier run, and the castle builder's block placeholder
 for _, child in ipairs(crypt:GetChildren()) do
-	if child:GetAttribute("CryptBuilder") or child.Name == "Coffin" or child.Name == "CoffinLid" then
+	if child ~= coffin and (child:GetAttribute("CryptBuilder") or child.Name == "Coffin" or child.Name == "CoffinLid") then
 		child:Destroy()
 	end
 end
 
 ------------------------------------------------------------------------
--- 3. HELPER FUNCTION
+-- 4. HELPER FUNCTION
 ------------------------------------------------------------------------
 local partCount = 0
 
@@ -122,107 +178,122 @@ local function put(parent, name, at, offset, size, material, color, solid, opts)
 end
 
 ------------------------------------------------------------------------
--- 4. THE CRYPT'S SPACE
--- The crypt is a back-row room, so its door is on the +Z side.
+-- 5. THE CRYPT'S SPACE
+-- The corridor runs through the middle of the castle at z = 0. The crypt
+-- is on one side of it, with its door on the side facing the corridor.
+-- doorSign is +1 if that is the +Z side, or -1 if it's the -Z side.
+-- The back wall is the opposite side.
 ------------------------------------------------------------------------
 local boards = crypt:FindFirstChild("StoneFloor")
 local floorY = boards and (boards.Position.Y + boards.Size.Y / 2) or (zone.Position.Y - zone.Size.Y / 2 + 0.2)
-local cx, cz = zone.Position.X, zone.Position.Z
-local doorZ = zone.Position.Z + zone.Size.Z / 2
+local ceilingY = zone.Position.Y + zone.Size.Y / 2
+local cx = zone.Position.X                                   -- the door is in the middle of this wall
+local doorSign = (zone.Position.Z < 0) and 1 or -1
+local doorZ = zone.Position.Z + doorSign * zone.Size.Z / 2   -- the wall with the door
+local backZ = zone.Position.Z - doorSign * zone.Size.Z / 2   -- the back wall
 
 local furniture = Instance.new("Folder")
 furniture.Name = "CryptFurniture"
 furniture:SetAttribute("CryptBuilder", true)
 furniture.Parent = crypt
 
-local at = CFrame.new(cx, floorY, cz)
-
--- Stone dais: a wide low step with a smaller platform on top
-local stepHeight, topHeight = 0.5, 1.0
-put(furniture, "DaisStep", at, Vector3.new(0, stepHeight / 2, 0), Vector3.new(11, stepHeight, 17), Enum.Material.Slate, COLORS.Slate, true)
-put(furniture, "DaisTop", at, Vector3.new(0, stepHeight + (topHeight - stepHeight) / 2, 0), Vector3.new(8.5, topHeight - stepHeight, 14.5), Enum.Material.Slate, COLORS.Stone, true)
-local daisTopY = floorY + topHeight
-
--- Red runner from the door toward the dais
-local runnerStart = cz + 8.5
-local runnerEnd = doorZ - 0.5
-if runnerEnd > runnerStart then
-	local rat = CFrame.new(cx, floorY, (runnerStart + runnerEnd) / 2)
-	put(furniture, "Runner", rat, Vector3.new(0, 0.04, 0), Vector3.new(4, 0.08, runnerEnd - runnerStart), Enum.Material.Fabric, COLORS.Carpet, false)
-end
-
--- Four iron candle stands around the dais
-for _, sx in ipairs({ -1, 1 }) do
-	for _, sz in ipairs({ -1, 1 }) do
-		local sat = CFrame.new(cx + sx * 6.5, floorY, cz + sz * 9.5)
-		put(furniture, "StandPole", sat, Vector3.new(0, 2.2, 0), Vector3.new(0.4, 4.4, 0.4), Enum.Material.Metal, COLORS.Iron, false)
-		put(furniture, "StandBase", sat, Vector3.new(0, 0.15, 0), Vector3.new(1.4, 0.3, 1.4), Enum.Material.Metal, COLORS.Iron, true)
-		put(furniture, "StandDish", sat, Vector3.new(0, 4.5, 0), Vector3.new(1.4, 0.2, 1.4), Enum.Material.Metal, COLORS.Iron, false)
-		put(furniture, "Candle", sat, Vector3.new(0, 5.15, 0), Vector3.new(1.0, 0.35, 0.35), Enum.Material.SmoothPlastic, COLORS.Cream, false,
-			{ shape = Enum.PartType.Cylinder, rot = CFrame.Angles(0, 0, math.rad(90)) }) -- stands the cylinder up
-		local flame = put(furniture, "Flame", sat, Vector3.new(0, 5.85, 0), Vector3.new(0.3, 0.3, 0.3), Enum.Material.Neon, COLORS.Flame, false,
-			{ shape = Enum.PartType.Ball })
-		local light = Instance.new("PointLight")
-		light.Color = COLORS.Light
-		light.Range = 22
-		light.Brightness = 1.2
-		light.Parent = flame
-		CollectionService:AddTag(light, "CandleLight") -- the CandleFlicker script finds candles by this tag
-	end
-end
-
 ------------------------------------------------------------------------
--- 5. PLACE THE COFFIN
--- Steps: copy it, lock it in place, lay it flat with its long side along
--- the crypt's length, scale it to COFFIN_LENGTH, and set it on the dais.
+-- 6. SIZE AND TURN THE COFFIN
+-- Step 1: scale it. The first run remembers the coffin's original scale
+--         (the "BaseScale" attribute), so running again never stacks.
+-- Step 2: turn it (only left and right, never tipping it) so its front
+--         looks at the door. We treat the model's -Z side as its "front",
+--         which is how Roblox models normally face.
 ------------------------------------------------------------------------
-local coffin = source:Clone()
-if coffin:IsA("BasePart") then
-	-- a lone mesh: wrap it in a Model so we can move and scale it as one
-	local wrapper = Instance.new("Model")
-	coffin.Parent = wrapper
-	wrapper.PrimaryPart = coffin
-	coffin = wrapper
+local baseScale = coffin:GetAttribute("BaseScale")
+if not baseScale then
+	baseScale = coffin:GetScale()
+	coffin:SetAttribute("BaseScale", baseScale)
 end
-coffin.Name = "DraculaCoffin"
-coffin:SetAttribute("CryptBuilder", true)
-coffin:SetAttribute("IsOpen", false)
-for _, d in ipairs(coffin:GetDescendants()) do
-	if d:IsA("BasePart") then
-		d.Anchored = true
-	end
-end
-coffin.Parent = furniture
+coffin:ScaleTo(baseScale * COFFIN_SCALE)
 
--- Start from a known pose, so the model's size is measured along the world axes
-coffin:PivotTo(CFrame.new(cx, daisTopY + 20, cz))
-local _, size = coffin:GetBoundingBox()
-
--- Lying on its end? Tip it over so the long side is horizontal.
-if size.Y > size.X and size.Y > size.Z then
-	coffin:PivotTo(coffin:GetPivot() * CFrame.Angles(math.rad(90), 0, 0))
-	_, size = coffin:GetBoundingBox()
-end
--- Long side along X? Turn it a quarter so it runs along Z, the crypt's length.
-if size.X > size.Z then
-	coffin:PivotTo(coffin:GetPivot() * CFrame.Angles(0, math.rad(90), 0))
-	_, size = coffin:GetBoundingBox()
-end
-if TURN_COFFIN ~= 0 then
-	coffin:PivotTo(coffin:GetPivot() * CFrame.Angles(0, math.rad(TURN_COFFIN), 0))
+-- The direction the coffin's front points now, flattened to the ground.
+-- A heading is the angle of a direction, measured from +Z toward +X.
+local pivot = coffin:GetPivot()
+local look = pivot.LookVector
+local flatLength = math.sqrt(look.X * look.X + look.Z * look.Z)
+if flatLength > 0.1 then
+	local currentHeading = math.atan2(look.X, look.Z)
+	local wantedHeading = math.atan2(0, doorSign) -- the direction from the back wall to the door
+	local turn = wantedHeading - currentHeading + math.rad(TURN_COFFIN)
+	-- Spin around the coffin's own middle: put it at the origin's rotation, then turn it.
+	coffin:PivotTo(CFrame.new(pivot.Position) * CFrame.Angles(0, turn, 0) * pivot.Rotation)
+else
+	warn("The coffin's front points straight up or down, so I couldn't tell which way to turn it. Check TURN_COFFIN.")
 end
 
--- Scale so the length is COFFIN_LENGTH
-coffin:ScaleTo(coffin:GetScale() * (COFFIN_LENGTH / size.Z))
+-- How far the coffin reaches along each world direction (x, y, z), counting
+-- however it's turned. A box turned a quarter reaches differently than
+-- one that isn't, so we add up each of the box's own sides.
 local boxCFrame, boxSize = coffin:GetBoundingBox()
-
--- Move it onto the dais, centered, with its bottom touching the top
-local target = Vector3.new(cx, daisTopY + boxSize.Y / 2, cz)
-coffin:PivotTo(coffin:GetPivot() + (target - boxCFrame.Position))
-coffin:SetAttribute("Length", COFFIN_LENGTH)
+local right, up, backward = boxCFrame.RightVector, boxCFrame.UpVector, boxCFrame.LookVector
+local reachX = (math.abs(right.X) * boxSize.X + math.abs(up.X) * boxSize.Y + math.abs(backward.X) * boxSize.Z)
+local reachY = (math.abs(right.Y) * boxSize.X + math.abs(up.Y) * boxSize.Y + math.abs(backward.Y) * boxSize.Z)
+local reachZ = (math.abs(right.Z) * boxSize.X + math.abs(up.Z) * boxSize.Y + math.abs(backward.Z) * boxSize.Z)
 
 ------------------------------------------------------------------------
--- 6. MARKERS FOR GAME SCRIPTS
+-- 7. THE PLATFORM, RUNNER AND CANDLES
+-- The platform is flush against the back wall, a little wider than the coffin
+-- and sticking out in front of it.
+------------------------------------------------------------------------
+local platformWidth = reachX + 4
+local platformDepth = reachZ + 5
+local platformCenterZ = backZ + doorSign * platformDepth / 2
+local platformTopY = floorY + PLATFORM_HEIGHT
+
+put(furniture, "Platform", CFrame.new(cx, floorY, platformCenterZ), Vector3.new(0, PLATFORM_HEIGHT / 2, 0),
+	Vector3.new(platformWidth, PLATFORM_HEIGHT, platformDepth), Enum.Material.Slate, COLORS.Stone, true)
+put(furniture, "PlatformEdge", CFrame.new(cx, floorY, platformCenterZ), Vector3.new(0, PLATFORM_HEIGHT * 0.3, 0),
+	Vector3.new(platformWidth + 1, PLATFORM_HEIGHT * 0.6, platformDepth + 1), Enum.Material.Slate, COLORS.Slate, true)
+
+-- A red runner from the door toward the platform
+local runnerStart = backZ + doorSign * (platformDepth + 1)
+local runnerLength = math.abs(doorZ - runnerStart) - 0.5
+if runnerLength > 1 then
+	local runnerCenterZ = runnerStart + doorSign * runnerLength / 2
+	put(furniture, "Runner", CFrame.new(cx, floorY, runnerCenterZ), Vector3.new(0, 0.04, 0),
+		Vector3.new(4, 0.08, runnerLength), Enum.Material.Fabric, COLORS.Carpet, false)
+end
+
+-- Two iron candle stands, one each side of the platform
+for _, side in ipairs({ -1, 1 }) do
+	local sat = CFrame.new(cx + side * (platformWidth / 2 + 2), floorY, backZ + doorSign * (platformDepth - 1))
+	put(furniture, "StandPole", sat, Vector3.new(0, 2.2, 0), Vector3.new(0.4, 4.4, 0.4), Enum.Material.Metal, COLORS.Iron, false)
+	put(furniture, "StandBase", sat, Vector3.new(0, 0.15, 0), Vector3.new(1.4, 0.3, 1.4), Enum.Material.Metal, COLORS.Iron, true)
+	put(furniture, "StandDish", sat, Vector3.new(0, 4.5, 0), Vector3.new(1.4, 0.2, 1.4), Enum.Material.Metal, COLORS.Iron, false)
+	put(furniture, "Candle", sat, Vector3.new(0, 5.15, 0), Vector3.new(1.0, 0.35, 0.35), Enum.Material.SmoothPlastic, COLORS.Cream, false,
+		{ shape = Enum.PartType.Cylinder, rot = CFrame.Angles(0, 0, math.rad(90)) }) -- stands the cylinder up
+	local flame = put(furniture, "Flame", sat, Vector3.new(0, 5.85, 0), Vector3.new(0.3, 0.3, 0.3), Enum.Material.Neon, COLORS.Flame, false,
+		{ shape = Enum.PartType.Ball })
+	local light = Instance.new("PointLight")
+	light.Color = COLORS.Light
+	light.Range = 24
+	light.Brightness = 1.3
+	light.Parent = flame
+	CollectionService:AddTag(light, "CandleLight") -- the CandleFlicker script finds candles by this tag
+end
+
+------------------------------------------------------------------------
+-- 8. PLACE THE COFFIN
+-- Back against the wall (with a small gap), centered on the door, and
+-- standing on the platform.
+------------------------------------------------------------------------
+local coffinCenterZ = backZ + doorSign * (reachZ / 2 + WALL_GAP)
+local target = Vector3.new(cx, platformTopY + reachY / 2, coffinCenterZ)
+coffin:PivotTo(coffin:GetPivot() + (target - boxCFrame.Position))
+coffin:SetAttribute("CryptCoffin", true)
+
+if platformTopY + reachY > ceilingY - 0.5 then
+	warn(string.format("The coffin is %.1f studs tall, which won't fit under the ceiling. Lower COFFIN_SCALE and run again.", reachY))
+end
+
+------------------------------------------------------------------------
+-- 9. MARKERS FOR GAME SCRIPTS
 ------------------------------------------------------------------------
 local function marker(name, position)
 	local p = put(furniture, name, CFrame.new(position), Vector3.new(0, 0, 0), Vector3.new(0.5, 0.5, 0.5),
@@ -232,11 +303,11 @@ local function marker(name, position)
 	p.CanTouch = false
 	p:SetAttribute("Spot", name)
 end
-marker("CoffinSpot", Vector3.new(cx, daisTopY + boxSize.Y, cz))
-marker("DraculaSpawn", Vector3.new(cx + 7.5, floorY + 3.5, cz))
+marker("CoffinSpot", Vector3.new(cx, platformTopY + 3.5, coffinCenterZ + doorSign * (reachZ / 2 + 2))) -- just in front of the coffin
+marker("DraculaSpawn", Vector3.new(cx, floorY + 3.5, backZ + doorSign * (platformDepth + 3)))       -- on the floor in front of the platform
 
 ------------------------------------------------------------------------
--- 7. FINISH
+-- 10. FINISH
 ------------------------------------------------------------------------
 if recording then
 	pcall(function() ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit) end)
@@ -245,5 +316,5 @@ else
 end
 pcall(function() game:GetService("Selection"):Set({ crypt }) end)
 
-print(string.format("Crypt built! %d parts. Coffin size: %.1f x %.1f x %.1f studs. Press F to zoom to it.",
-	partCount, boxSize.X, boxSize.Y, boxSize.Z))
+print(string.format("Crypt built! Coffin is %.1f wide, %.1f tall and %.1f deep. If it faces the wrong way, change TURN_COFFIN at the top.",
+	reachX, reachY, reachZ))
