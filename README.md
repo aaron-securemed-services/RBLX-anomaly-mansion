@@ -16,7 +16,8 @@ location below and paste the file's contents in.
 | `src/shared/GuestTraits.lua` | ReplicatedStorage/GuestTraits | ModuleScript |
 | `src/server/GuestManager.server.lua` | ServerScriptService/GuestManager | Script |
 
-`tools/CastleBuilder.lua` is not a game script. Paste it into the Command Bar once to build the castle.
+`tools/CastleBuilder.lua` and `tools/LobbyBuilder.lua` are not game scripts. Paste each into the Command Bar
+(CastleBuilder first, then LobbyBuilder) to build the castle and furnish the lobby.
 See `DESIGN.md` for the game design and build order.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript (the Castle Builder creates this for you) |
 

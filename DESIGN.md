@@ -38,7 +38,7 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
 
 ## Build order
 1. [x] Day/night clock and HUD
-2. [x] Castle (tools/CastleBuilder.lua)
+2. [x] Castle (tools/CastleBuilder.lua) and lobby furniture (tools/LobbyBuilder.lua)
 3. [ ] Guest arrival, traits and check-in (GuestManager, in progress)
 4. [ ] Clue display for players (guest card UI)
 5. [ ] Dracula: visible monster that picks a target and hunts
