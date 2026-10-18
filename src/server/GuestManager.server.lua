@@ -159,10 +159,17 @@ local function checkIn(guest, player)
 	guest.model:SetAttribute("CheckedIn", true)
 	guest.model:SetAttribute("RoomName", room:GetAttribute("RoomName"))
 
-	-- Put the guest in the middle of their room
-	local zone = room:FindFirstChild("Zone")
-	local roomFloorY = zone.Position.Y - zone.Size.Y / 2
-	guest.model:PivotTo(CFrame.new(zone.Position.X, roomFloorY + 3.5, zone.Position.Z))
+	-- Put the guest in their room. If the room has been furnished (by
+	-- tools/GuestRoomBuilder.lua) it has an invisible "GuestSpot" marker at
+	-- the foot of the bed. Otherwise we use the middle of the room.
+	local spot = room:FindFirstChild("GuestSpot", true) -- true = look inside everything in the room
+	if spot then
+		guest.model:PivotTo(CFrame.new(spot.Position))
+	else
+		local zone = room:FindFirstChild("Zone")
+		local roomFloorY = zone.Position.Y - zone.Size.Y / 2
+		guest.model:PivotTo(CFrame.new(zone.Position.X, roomFloorY + 3.5, zone.Position.Z))
+	end
 
 	print(player.Name, "checked in", guest.model.Name, "to", room:GetAttribute("RoomName"))
 end
