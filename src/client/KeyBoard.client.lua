@@ -264,6 +264,10 @@ local function showRoom(number)
 	if info.guest then
 		detailTitle.Text = "Room " .. number .. ": " .. info.guest.name
 		detailSubtitle.Text = "Arrived on day " .. info.guest.day
+		-- after a night, show what became of them
+		if info.guest.status and info.guest.status ~= "Healthy" then
+			detailSubtitle.Text = detailSubtitle.Text .. "  -  " .. info.guest.status
+		end
 		addLine(0, "What you noticed:", COLORS.Gold)
 		for i, clue in ipairs(info.guest.clues) do
 			addLine(i, "•  " .. clue)

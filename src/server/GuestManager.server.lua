@@ -214,7 +214,8 @@ local function buildKeyBoardInfo()
 	-- First, find which guest is in which room
 	local guestInRoom = {}
 	for _, guest in pairs(guestByModel) do -- pairs walks every entry in a table
-		if guest.checkedIn then
+		-- (a guest whose character was removed, like one who died, isn't counted)
+		if guest.checkedIn and guest.model.Parent then
 			guestInRoom[guest.roomNumber] = guest
 		end
 	end
@@ -225,7 +226,10 @@ local function buildKeyBoardInfo()
 		local guest = guestInRoom[room.number]
 		if guest then
 			-- only what the player is allowed to know: never the secret traits
-			entry.guest = { name = guest.name, day = guest.day, clues = guest.clues }
+			entry.guest = {
+				name = guest.name, day = guest.day, clues = guest.clues,
+				status = guest.model:GetAttribute("Status") or "Healthy", -- Dracula's script changes this
+			}
 		end
 		table.insert(rooms, entry)
 	end

@@ -20,6 +20,7 @@ night. Survive 7 days before the police arrive.
 | Feeding outcome | 50/50: the guest dies, or is half-drained |
 | Half-drained | Becomes a vampire helper at the next nightfall |
 | Vampire helpers | Make later nights harder (can undo protections) |
+| Dracula | A visible monster (placeholder figure for now). Wakes 12 s after nightfall, hunts 1, 1, 2, 2, 2, 3, 3 guests on nights 1-7, walks at 12 (players 16). Touching a player throws them back and stuns them 6 s. Never kills players. |
 | Doors | 16 guest room doors and a front double door. Anyone can lock or unlock; only players can. |
 | Locked doors | Dracula can't walk through. He breaks it down (4 s, with noise), then it stays broken until morning. `DoorControl.Settings.DraculaCanBreak = false` makes a lock absolute. |
 
@@ -54,7 +55,7 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
    - [x] Door leaves that open, close and lock (DoorBuilder.lua + DoorControl)
 3. [ ] Guest arrival, traits and check-in (GuestManager, in progress)
 4. [x] Clue display for players (guest card UI, with keyboard, mouse, touch and controller support)
-5. [ ] Dracula: visible monster that picks a target and hunts
+5. [x] Dracula: visible monster that picks a target, walks there, breaks doors, and feeds (DraculaManager)
 6. [ ] Protection actions (lock door, garlic, crucifix, and so on)
-7. [ ] Feeding outcomes, vampire helpers
+7. [~] Feeding outcomes done (die or drained, drained turns into a vampire next night). Vampire helper BEHAVIOUR (undoing protections, etc.) still to do.
 8. [ ] Win/lose and the week-end screen
