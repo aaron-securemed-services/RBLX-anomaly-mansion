@@ -12,6 +12,12 @@ location below and paste the file's contents in.
 |---|---|---|
 | `src/server/GameManager.server.lua` | ServerScriptService/GameManager | Script |
 | `src/client/ClockHUD.client.lua` | StarterPlayer/StarterPlayerScripts/ClockHUD | LocalScript |
+| `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript |
+| `src/shared/GuestTraits.lua` | ReplicatedStorage/GuestTraits | ModuleScript |
+| `src/server/GuestManager.server.lua` | ServerScriptService/GuestManager | Script |
+
+`tools/CastleBuilder.lua` is not a game script. Paste it into the Command Bar once to build the castle.
+See `DESIGN.md` for the game design and build order.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript (the Castle Builder creates this for you) |
 
 ## Building the castle
