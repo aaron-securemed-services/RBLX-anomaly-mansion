@@ -36,6 +36,10 @@ UncoverMirror, Bandage, KeepAwayFromCrypt.
 Difficulty: early days give guests 1 to 2 traits with obvious clues. Later days give 3 to 5,
 with subtler clues. Red herrings (suspicious guests who are safe) come later.
 
+## Controls
+- Talk to a guest: **E** (keyboard) or **A** on Xbox / **X (cross)** on PlayStation.
+- Guest card: click/tap, or D-pad/stick to move and A/X to press. **B** / **circle** closes it.
+
 ## Build order
 1. [x] Day/night clock and HUD
 2. [x] Castle (tools/CastleBuilder.lua), lobby (LobbyBuilder.lua) and guest rooms (GuestRoomBuilder.lua)
@@ -44,7 +48,7 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
    - [ ] Furnish the rest of Dracula's areas (chamber, study, chapel, observatory) and the ballroom and gallery
    - [ ] Door leaves that open, close and lock (needed for the LockDoor counter)
 3. [ ] Guest arrival, traits and check-in (GuestManager, in progress)
-4. [ ] Clue display for players (guest card UI)
+4. [x] Clue display for players (guest card UI, with keyboard, mouse, touch and controller support)
 5. [ ] Dracula: visible monster that picks a target and hunts
 6. [ ] Protection actions (lock door, garlic, crucifix, and so on)
 7. [ ] Feeding outcomes, vampire helpers

@@ -2,12 +2,16 @@
 -- Brings guests to the castle during the day. For each guest it:
 --   1. makes a character with a random name and random traits,
 --   2. walks them in through the front door to the check-in desk,
---   3. lets a player check them in with a prompt, which gives them a room.
+--   3. lets a player talk to them. That opens the guest card (a screen
+--      shown by the GuestCard LocalScript) with the clues the player
+--      notices, and a list of rooms to choose from,
+--   4. checks them in to the room the player picked.
 -- At night, any guests still waiting in the lobby leave.
 --
 -- Needs: GameManager (for the Phase and DayNumber values),
---        GuestTraits (ModuleScript in ReplicatedStorage), and the castle
---        built by tools/CastleBuilder.lua.
+--        GuestTraits (ModuleScript in ReplicatedStorage),
+--        GuestCard (LocalScript in StarterPlayerScripts),
+--        and the castle built by tools/CastleBuilder.lua.
 
 ------------------------------------------------------------------
 -- SERVICES AND SHARED VALUES
@@ -24,6 +28,38 @@ local phase = ReplicatedStorage:WaitForChild("Phase")
 local dayNumber = ReplicatedStorage:WaitForChild("DayNumber")
 
 ------------------------------------------------------------------
+-- REMOTE EVENTS
+-- The server and each player's screen run on different computers, so
+-- they can't call each other's code directly. A RemoteEvent is a
+-- messenger between them: one side "fires" it with some information,
+-- and the other side runs a function when it arrives.
+--   ShowGuestCard   server -> one player: "open the card for this guest"
+--   RequestCheckIn  player -> server:     "check this guest into this room"
+--   CheckInResult   server -> player(s):  "that worked" or "that failed, because..."
+------------------------------------------------------------------
+local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+if not remotes then
+	remotes = Instance.new("Folder")
+	remotes.Name = "Remotes"
+	remotes.Parent = ReplicatedStorage
+end
+
+-- Finds a RemoteEvent with this name, or makes it
+local function makeRemote(name)
+	local remote = remotes:FindFirstChild(name)
+	if not remote then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = remotes
+	end
+	return remote
+end
+
+local showGuestCard = makeRemote("ShowGuestCard")
+local requestCheckIn = makeRemote("RequestCheckIn")
+local checkInResult = makeRemote("CheckInResult")
+
+------------------------------------------------------------------
 -- SETTINGS
 -- Lists are indexed by day: the 1st number is day 1, and so on.
 ------------------------------------------------------------------
@@ -33,9 +69,10 @@ local TRAITS_PER_DAY = {                       -- { fewest, most } traits per gu
 }
 local ARRIVAL_GAP = 25        -- seconds between one guest arriving and the next
 local GUEST_WALK_SPEED = 10   -- studs per second (players walk at 16)
+local TALK_DISTANCE = 20      -- how close a player must be to check a guest in
 
 -- While testing, print each guest's real traits and score to Output.
--- Set to false once the clue system exists so players have to find them out.
+-- Set to false once you're happy with the clues so you can't peek.
 local DEBUG_SHOW_TRAITS = true
 
 local NAMES = {
@@ -90,9 +127,12 @@ local entrance = Vector3.new(
 ------------------------------------------------------------------
 -- GUEST BOOKKEEPING
 -- `waiting` is the line of guests at the desk, first in line first.
--- Each entry is a table: { model, humanoid, prompt, checkedIn }.
+-- `guestByModel` finds a guest's record from their character model.
+-- Each record is a table:
+--   { model, humanoid, prompt, checkedIn, name, clues, day }
 ------------------------------------------------------------------
 local waiting = {}
+local guestByModel = {}
 
 -- Where the guest in line position `slot` stands: just in front of the
 -- desk, with each person behind them standing further back toward the door.
@@ -109,42 +149,75 @@ local function updateQueue()
 end
 
 ------------------------------------------------------------------
--- FUNCTION: pickFreeRoom
--- Returns a random guest room Model that nobody is staying in, or nil
--- if the castle is full. The castle builder tagged every room Model with
--- a "RoomKind" attribute (an attribute is a named value stored on an object).
+-- ROOMS
+-- The castle builder tagged every room Model with a "RoomKind" attribute
+-- (an attribute is a named value stored on an object), and guest rooms
+-- also have a "RoomNumber".
 ------------------------------------------------------------------
-local function pickFreeRoom()
-	local free = {}
+
+-- Returns the Model of the guest room with this number, or nil
+local function findRoom(number)
 	for _, object in ipairs(castle:GetDescendants()) do
 		if object:IsA("Model")
 			and object:GetAttribute("RoomKind") == "Guest"
-			and not object:GetAttribute("Occupied") then
-			table.insert(free, object)
+			and object:GetAttribute("RoomNumber") == number then
+			return object
 		end
 	end
-	if #free == 0 then
-		return nil
+	return nil
+end
+
+-- Returns a list of every guest room, lowest number first, like:
+--   { { number = 201, occupied = false }, { number = 202, occupied = true }, ... }
+local function getRoomList()
+	local list = {}
+	for _, object in ipairs(castle:GetDescendants()) do
+		if object:IsA("Model") and object:GetAttribute("RoomKind") == "Guest" then
+			table.insert(list, {
+				number = object:GetAttribute("RoomNumber"),
+				occupied = object:GetAttribute("Occupied") == true,
+			})
+		end
 	end
-	return free[math.random(1, #free)]
+	-- table.sort takes a function that says which of two items comes first
+	table.sort(list, function(a, b)
+		return a.number < b.number
+	end)
+	return list
 end
 
 ------------------------------------------------------------------
 -- FUNCTION: checkIn
--- Runs when a player triggers the "Check in" prompt on a guest.
--- It gives the guest a room and moves them into it.
+-- Runs when a player asks to check a guest into a room. The server never
+-- trusts the player's screen, so it checks everything again here.
+-- On success it moves the guest into the room.
 -- (For now the guest is placed straight in the room. Walking up the
 -- stairs needs pathfinding, which we'll add later.)
 ------------------------------------------------------------------
-local function checkIn(guest, player)
-	if guest.checkedIn then
-		return -- two players pressed at once, only the first counts
+local function checkIn(guest, player, roomNumber)
+	-- Tells just this player that something went wrong
+	local function fail(message)
+		checkInResult:FireClient(player, guest.model, false, message)
 	end
 
-	local room = pickFreeRoom()
+	if guest.checkedIn then
+		return fail("That guest has already been checked in.")
+	end
+
+	local room = findRoom(roomNumber)
 	if not room then
-		print("No free rooms! Can't check in", guest.model.Name)
-		return
+		return fail("That room doesn't exist.")
+	end
+	if room:GetAttribute("Occupied") then
+		return fail("Room " .. roomNumber .. " is already taken.")
+	end
+
+	-- The player must be standing near the guest
+	local character = player.Character
+	local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
+	local guestRoot = guest.model:FindFirstChild("HumanoidRootPart")
+	if not playerRoot or not guestRoot or (playerRoot.Position - guestRoot.Position).Magnitude > TALK_DISTANCE then
+		return fail("You're too far away.")
 	end
 
 	guest.checkedIn = true
@@ -158,6 +231,7 @@ local function checkIn(guest, player)
 	room:SetAttribute("Occupied", true)
 	guest.model:SetAttribute("CheckedIn", true)
 	guest.model:SetAttribute("RoomName", room:GetAttribute("RoomName"))
+	guest.model:SetAttribute("RoomNumber", roomNumber)
 
 	-- Put the guest in their room. If the room has been furnished (by
 	-- tools/GuestRoomBuilder.lua) it has an invisible "GuestSpot" marker at
@@ -171,7 +245,10 @@ local function checkIn(guest, player)
 		guest.model:PivotTo(CFrame.new(zone.Position.X, roomFloorY + 3.5, zone.Position.Z))
 	end
 
-	print(player.Name, "checked in", guest.model.Name, "to", room:GetAttribute("RoomName"))
+	print(player.Name, "checked in", guest.name, "to room", roomNumber)
+
+	-- Tell every player, so anyone with this guest's card open can close it
+	checkInResult:FireAllClients(guest.model, true, guest.name .. " is now in room " .. roomNumber .. ".")
 end
 
 ------------------------------------------------------------------
@@ -206,8 +283,10 @@ local function spawnGuest(day)
 	-- Store the secret information as attributes on the guest. Other scripts
 	-- (like Dracula's) can read these later.
 	local traitIds = {}
+	local clues = {}
 	for _, trait in ipairs(traits) do
 		table.insert(traitIds, trait.id)
+		table.insert(clues, trait.clue) -- only the clue text goes to players, never the trait itself
 	end
 	model:SetAttribute("Traits", table.concat(traitIds, ","))
 	model:SetAttribute("VictimScore", GuestTraits.victimScore(traits))
@@ -216,33 +295,62 @@ local function spawnGuest(day)
 	model.Parent = guestsFolder
 	model:PivotTo(CFrame.new(entrance)) -- place them just inside the front door
 
-	-- The "Check in" prompt players press (like pressing E on a door)
+	-- The "Talk to guest" prompt players press (like pressing E on a door)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Check in"
+	prompt.ActionText = "Talk to guest"
 	prompt.ObjectText = name
-	prompt.HoldDuration = 0.5           -- hold the button for half a second
+	prompt.HoldDuration = 0
+	-- Which button presses the prompt. The prompt shows the right icon on
+	-- its own. On a PlayStation controller Roblox treats ButtonA as the
+	-- X (cross) button, so this one setting covers Xbox and PlayStation.
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonA
 	prompt.MaxActivationDistance = 10   -- how close the player must be
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = model:WaitForChild("HumanoidRootPart")
 
-	local guest = { model = model, humanoid = humanoid, prompt = prompt, checkedIn = false }
+	local guest = {
+		model = model, humanoid = humanoid, prompt = prompt, checkedIn = false,
+		name = name, clues = clues, day = day,
+	}
+	guestByModel[model] = guest
+
+	-- When a player presses the prompt, open the guest card on THEIR screen only.
+	-- FireClient(player, ...) sends the message to just that one player.
 	prompt.Triggered:Connect(function(player)
-		checkIn(guest, player)
+		showGuestCard:FireClient(player, model, {
+			name = name,
+			day = day,
+			clues = clues,
+			rooms = getRoomList(), -- fresh list each time, so taken rooms are greyed out
+		})
 	end)
 
 	table.insert(waiting, guest)
 	updateQueue() -- sends the new guest to the end of the line
 
-	-- Output messages for testing. The clues are what players will eventually
-	-- see in the game itself.
 	print("Guest arrives:", name)
-	for _, trait in ipairs(traits) do
-		print("   clue:", trait.clue)
-	end
 	if DEBUG_SHOW_TRAITS then
 		print("   [debug] traits:", table.concat(traitIds, ", "), "| victim score:", model:GetAttribute("VictimScore"))
 	end
 end
+
+------------------------------------------------------------------
+-- A PLAYER CLICKED "CHECK IN" ON THE GUEST CARD
+-- OnServerEvent runs our function when a player fires the RemoteEvent.
+-- Roblox always passes the player first, then whatever they sent.
+-- Anything a player sends could be fake, so we check the types first.
+------------------------------------------------------------------
+requestCheckIn.OnServerEvent:Connect(function(player, guestModel, roomNumber)
+	if typeof(guestModel) ~= "Instance" or typeof(roomNumber) ~= "number" then
+		return
+	end
+	local guest = guestByModel[guestModel]
+	if not guest then
+		return
+	end
+	checkIn(guest, player, roomNumber)
+end)
 
 ------------------------------------------------------------------
 -- DAY AND NIGHT REACTIONS
@@ -264,7 +372,8 @@ end
 -- At night, guests who never got checked in give up and leave.
 local function dismissWaiting()
 	for _, guest in ipairs(waiting) do
-		print(guest.model.Name, "gave up waiting and left.")
+		print(guest.name, "gave up waiting and left.")
+		guestByModel[guest.model] = nil
 		guest.model:Destroy()
 	end
 	table.clear(waiting)
