@@ -1,9 +1,9 @@
 -- BatSwarm
 -- Bats with flapping wings, drawn on each player's own screen (smooth, and no work for
 -- the server):
---   * a few bats always circle Dracula; they vanish while he teleports
+--   * a few bats circle Dracula while he's awake (at night); they vanish while he teleports
 --   * at night, bats swoop up and down every corridor near the ceiling
---   * bats circle the spires of the castle towers outside
+--   * at night, bats circle the spires of the castle towers outside
 --   * a burst of bats flies out of the shadow pools when Dracula teleports
 --     (DraculaPowers tells us when, through ReplicatedStorage.DraculaFX)
 --
@@ -244,7 +244,8 @@ RunService.RenderStepped:Connect(function(dt)
 
 	-- around Dracula
 	local rig, root = draculaRoot()
-	local show = root ~= nil and not rig:GetAttribute("Teleporting")
+	-- only while he's awake (night) and not in the middle of a teleport
+	local show = root ~= nil and rig:GetAttribute("Awake") == true and not rig:GetAttribute("Teleporting")
 	for _, bat in ipairs(draculaBats) do
 		setVisible(bat, show)
 		if show then
@@ -272,8 +273,9 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- towers
+	-- towers (night only)
 	for _, bat in ipairs(towerBats) do
+		setVisible(bat, night)
 		bat.angle += bat.speed * dt
 		local pos = bat.center + Vector3.new(math.cos(bat.angle) * bat.radius, bat.height + math.sin(clock + bat.phase) * 2, math.sin(bat.angle) * bat.radius)
 		local tangent = Vector3.new(-math.sin(bat.angle), 0, math.cos(bat.angle)) * math.sign(bat.speed)

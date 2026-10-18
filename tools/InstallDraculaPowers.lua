@@ -141,10 +141,15 @@ install(ServerScriptService, "Script", "DraculaPowers", [===[
 --  * TELEPORT: a second pool opens where he is going, so players get a warning.
 --    A few seconds later he sinks into his pool, and rises out of the new one.
 --
--- Other scripts (like GameManager) can send him somewhere:
+--  * He only appears at NIGHT (follows GameManager's ReplicatedStorage.Phase): at
+--    nightfall he rises from a pool in front of his coffin; at dawn he sinks into his
+--    pool and stays hidden under his coffin until the next night. His rig gets the
+--    attribute Awake = true/false so other scripts know.
+--
+-- Other scripts (like GameManager) can send him somewhere at night:
 --     local teleport = game.ServerStorage:WaitForChild("DraculaTeleport")
 --     teleport:Invoke(somePosition)   -- a Vector3, a part, or a room Model with a Zone
--- It returns true when he has arrived (false if he was already teleporting).
+-- It returns true when he has arrived (false if he's asleep or already teleporting).
 --
 -- Looks: if ReplicatedStorage (or ServerStorage) has a model called "ShadowPool" (your
 -- Meshy pool) it's used for the pool; otherwise a pool is built from parts.
@@ -325,12 +330,120 @@ end
 local function smooth(a) return a * a * (3 - 2 * a) end
 
 ------------------------------------------------------------------
--- TELEPORT
+-- SINKING AND RISING
 ------------------------------------------------------------------
-local currentPool = makePool()
+local currentPool = nil  -- the pool under him (none while he sleeps)
 local spin = 0
-local busy = false
+local busy = false       -- true while he's sinking, rising or teleporting
+local awake = false      -- he only walks the castle at night
+local DEPTH = standHeight * 2 + 1 -- how far below the floor he goes
 
+-- his resting place: where DraculaRigBuilder stood him, in front of his coffin
+local homeCF = root.CFrame
+local homeFloor = floorBelow(homeCF.Position, 0) or (homeCF.Position - Vector3.new(0, standHeight, 0))
+local homeFacing = homeCF - homeCF.Position
+
+-- a pool opens on the floor at floorPoint
+local function openPool(floorPoint)
+	local pool = makePool()
+	placePool(pool, floorPoint, spin)
+	pool:ScaleTo(0.02)
+	growPool(pool, 0.02, 1, 0.6)
+	pool.Base.Mist:Emit(25)
+	return pool
+end
+
+-- a pool shrinks away and disappears (in the background)
+local function closePool(pool)
+	task.spawn(function()
+		growPool(pool, 1, 0.02, 0.6)
+		pool:Destroy()
+	end)
+end
+
+-- he sinks into the pool under him and fades out; returns where he was standing
+local function sink()
+	humanoid:MoveTo(root.Position) -- stop walking
+	root.Anchored = true
+	local startCF = root.CFrame
+	if currentPool then currentPool.Base.Mist:Emit(30) end
+	batBurst(startCF.Position - Vector3.new(0, standHeight, 0))
+	local t = 0
+	while t < SINK_TIME do
+		t += RunService.Heartbeat:Wait()
+		local a = smooth(math.min(t / SINK_TIME, 1))
+		root.CFrame = startCF * CFrame.new(0, -DEPTH * a, 0)
+		setFade(a)
+	end
+	setFade(1)
+	return startCF
+end
+
+-- he rises out of currentPool at floorPoint, facing the given way
+local function rise(floorPoint, facing)
+	local standCF = CFrame.new(floorPoint + Vector3.new(0, standHeight + 0.05, 0)) * facing
+	root.Anchored = true
+	root.CFrame = standCF * CFrame.new(0, -DEPTH, 0)
+	if currentPool then currentPool.Base.Mist:Emit(30) end
+	batBurst(floorPoint)
+	local t = 0
+	while t < RISE_TIME do
+		t += RunService.Heartbeat:Wait()
+		local a = smooth(math.min(t / RISE_TIME, 1))
+		root.CFrame = standCF * CFrame.new(0, -DEPTH * (1 - a), 0)
+		setFade(1 - a)
+	end
+	setFade(0)
+	root.CFrame = standCF
+	root.Anchored = false
+end
+
+local function waitUntilFree()
+	while busy do task.wait(0.1) end
+end
+
+------------------------------------------------------------------
+-- DAY AND NIGHT: he wakes at nightfall and returns to his coffin at dawn
+------------------------------------------------------------------
+-- hidden under his coffin, invisible, not moving
+local function hideAtHome()
+	setFade(1)
+	root.Anchored = true
+	root.CFrame = CFrame.new(homeFloor + Vector3.new(0, standHeight, 0)) * homeFacing * CFrame.new(0, -DEPTH, 0)
+end
+
+local function wakeUp()
+	waitUntilFree()
+	if awake then return end
+	busy = true
+	currentPool = openPool(homeFloor) -- a pool opens in front of his coffin...
+	task.wait(1.5)
+	rise(homeFloor, homeFacing)         -- ...and he rises out of it
+	awake = true
+	rig:SetAttribute("Awake", true)
+	busy = false
+	print("Night falls. Dracula has awoken.")
+end
+
+local function goToSleep()
+	waitUntilFree()
+	if not awake then return end
+	busy = true
+	awake = false
+	rig:SetAttribute("Awake", false) -- BatSwarm hides his bats
+	sink()                            -- he sinks into his pool wherever he is...
+	if currentPool then
+		closePool(currentPool)
+		currentPool = nil
+	end
+	hideAtHome()                      -- ...and waits under his coffin for the next night
+	busy = false
+	print("Dawn. Dracula has returned to his coffin.")
+end
+
+------------------------------------------------------------------
+-- TELEPORT (night only)
+------------------------------------------------------------------
 -- turns whatever we were given into a spot on the floor
 local function destinationFor(target)
 	if typeof(target) == "Vector3" then
@@ -349,7 +462,7 @@ local function destinationFor(target)
 end
 
 local function teleport(target)
-	if busy then return false end
+	if busy or not awake then return false end
 	local floorPoint = destinationFor(target)
 	if not floorPoint then
 		warn("DraculaPowers: couldn't find a floor at that destination")
@@ -359,49 +472,17 @@ local function teleport(target)
 	rig:SetAttribute("Teleporting", true) -- BatSwarm hides his circling bats while this is on
 
 	-- 1. the warning: a new pool opens where he will appear
-	local nextPool = makePool()
-	placePool(nextPool, floorPoint, spin)
-	nextPool:ScaleTo(0.02)
-	growPool(nextPool, 0.02, 1, 0.6)
-	nextPool.Base.Mist:Emit(25)
+	local nextPool = openPool(floorPoint)
 	task.wait(WARNING_TIME)
 
 	-- 2. he sinks into the pool under him
-	humanoid:MoveTo(root.Position) -- stop walking
-	root.Anchored = true
-	local startCF = root.CFrame
-	local depth = standHeight * 2 + 1
-	currentPool.Base.Mist:Emit(30)
-	batBurst(startCF.Position - Vector3.new(0, standHeight, 0))
-	local t = 0
-	while t < SINK_TIME do
-		t += RunService.Heartbeat:Wait()
-		local a = smooth(math.min(t / SINK_TIME, 1))
-		root.CFrame = startCF * CFrame.new(0, -depth * a, 0)
-		setFade(a)
-	end
+	local startCF = sink()
 
 	-- 3. the old pool closes, he rises out of the new one
-	local oldPool = currentPool
+	if currentPool then closePool(currentPool) end
 	currentPool = nextPool
-	task.spawn(function()
-		growPool(oldPool, 1, 0.02, 0.6)
-		oldPool:Destroy()
-	end)
-	local facing = startCF - startCF.Position
-	local standCF = CFrame.new(floorPoint + Vector3.new(0, standHeight + 0.05, 0)) * facing
-	currentPool.Base.Mist:Emit(30)
-	batBurst(floorPoint)
-	t = 0
-	while t < RISE_TIME do
-		t += RunService.Heartbeat:Wait()
-		local a = smooth(math.min(t / RISE_TIME, 1))
-		root.CFrame = standCF * CFrame.new(0, -depth * (1 - a), 0)
-		setFade(1 - a)
-	end
-	setFade(0)
-	root.CFrame = standCF
-	root.Anchored = false
+	rise(floorPoint, startCF - startCF.Position)
+
 	busy = false
 	rig:SetAttribute("Teleporting", false)
 	return true
@@ -412,12 +493,34 @@ end
 ------------------------------------------------------------------
 RunService.Heartbeat:Connect(function(dt)
 	spin = (spin + dt * 0.4) % (math.pi * 2)
-	if busy or not root.Parent then return end
+	if busy or not awake or not currentPool or not root.Parent then return end
 	local floorPoint = floorBelow(root.Position, 0)
 	if floorPoint then
 		placePool(currentPool, floorPoint, spin)
 	end
 end)
+
+------------------------------------------------------------------
+-- FOLLOW GAMEMANAGER'S CLOCK (ReplicatedStorage.Phase = "Day" / "Night")
+------------------------------------------------------------------
+rig:SetAttribute("Awake", false)
+rig:SetAttribute("Teleporting", false)
+hideAtHome() -- he starts asleep
+
+local phase = ReplicatedStorage:WaitForChild("Phase", 10)
+local function onPhase()
+	if phase and phase.Value ~= "Night" then
+		task.spawn(goToSleep)
+	else
+		task.spawn(wakeUp)
+	end
+end
+if phase then
+	phase.Changed:Connect(onPhase)
+else
+	warn("DraculaPowers: no ReplicatedStorage.Phase (is GameManager running?). Dracula stays awake for testing.")
+end
+onPhase()
 
 ------------------------------------------------------------------
 -- LET OTHER SCRIPTS USE IT
@@ -441,7 +544,7 @@ if DEMO then
 	end
 	while rig.Parent do
 		task.wait(DEMO_EVERY)
-		if #rooms > 0 then
+		if awake and #rooms > 0 then -- only at night
 			local room = rooms[math.random(1, #rooms)]
 			print("Dracula is teleporting to " .. (room:GetAttribute("RoomName") or room.Name))
 			teleport(room)
@@ -454,9 +557,9 @@ install(StarterPlayer:WaitForChild("StarterPlayerScripts"), "LocalScript", "BatS
 -- BatSwarm
 -- Bats with flapping wings, drawn on each player's own screen (smooth, and no work for
 -- the server):
---   * a few bats always circle Dracula; they vanish while he teleports
+--   * a few bats circle Dracula while he's awake (at night); they vanish while he teleports
 --   * at night, bats swoop up and down every corridor near the ceiling
---   * bats circle the spires of the castle towers outside
+--   * at night, bats circle the spires of the castle towers outside
 --   * a burst of bats flies out of the shadow pools when Dracula teleports
 --     (DraculaPowers tells us when, through ReplicatedStorage.DraculaFX)
 --
@@ -697,7 +800,8 @@ RunService.RenderStepped:Connect(function(dt)
 
 	-- around Dracula
 	local rig, root = draculaRoot()
-	local show = root ~= nil and not rig:GetAttribute("Teleporting")
+	-- only while he's awake (night) and not in the middle of a teleport
+	local show = root ~= nil and rig:GetAttribute("Awake") == true and not rig:GetAttribute("Teleporting")
 	for _, bat in ipairs(draculaBats) do
 		setVisible(bat, show)
 		if show then
@@ -725,8 +829,9 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- towers
+	-- towers (night only)
 	for _, bat in ipairs(towerBats) do
+		setVisible(bat, night)
 		bat.angle += bat.speed * dt
 		local pos = bat.center + Vector3.new(math.cos(bat.angle) * bat.radius, bat.height + math.sin(clock + bat.phase) * 2, math.sin(bat.angle) * bat.radius)
 		local tangent = Vector3.new(-math.sin(bat.angle), 0, math.cos(bat.angle)) * math.sign(bat.speed)
@@ -761,4 +866,4 @@ if not dracula then
 	warn("No Workspace > NPCs > Dracula yet. Run DraculaRigBuilder.lua first, or the powers script will wait for him.")
 end
 
-print("Dracula's powers installed! Press Play: the shadow pool follows him, bats circle him, and every 20 seconds he teleports to a random room.")
+print("Dracula's powers installed! He sleeps by day. At nightfall he rises from a shadow pool by his coffin, bats circle him, and every 20 seconds he teleports to a random room. At dawn he sinks back into his pool.")
