@@ -5,15 +5,17 @@
   Furnishes all 16 guest rooms (201-208 and 301-308). Each room gets:
     * a four-poster-style bed with headboard, pillows and a red blanket
     * two nightstands with candles (the candles flicker like the rest)
-    * a gothic window on the far wall with curtains and a glass sash
+    * curtains and a rod around the room's window (the window itself, with
+      its glass, is built by CastleBuilder.lua)
     * an armchair and side table in the far corner
     * a wardrobe on one side wall
     * a writing desk and chair on the other side wall, with a mirror
       hung above the desk
 
   GAME HOOKS (named parts that later scripts will use)
-    Window  (Model)  attribute IsOpen = false. The glass pane inside is
-                     called "Sash". A script can swing or slide it open.
+    Window  (Model)  made by CastleBuilder, inside the room. Attribute IsOpen =
+                     false. The glass pane inside is called "Sash". A script
+                     can swing or slide it open.
     Mirror  (Model)  attribute Covered = false
     CrucifixSpot     an invisible marker above the headboard, where a
                      crucifix can be hung
@@ -236,7 +238,24 @@ end
 -- The window sits on the wall: z = 0 is the wall surface, and the room is
 -- in front (-Z). It's made of a dark "view" of the night, a frame, a
 -- curtain on each side, and a glass pane called "Sash".
-local function window(parent, at)
+-- Curtains and a rod around the room's real window. `at` is on the wall at the
+-- middle of the window, facing into the room. width and height are the window's,
+-- and sill is its bottom edge above the floor.
+local function curtains(parent, at, width, height, sill)
+	local m = Instance.new("Model")
+	m.Name = "Curtains"
+	m.Parent = parent
+	local centerY = sill + height / 2
+	for _, side in ipairs({ -1, 1 }) do
+		put(m, "Curtain", at, Vector3.new(side * (width / 2 + 1.0), centerY + 0.4, -0.9), Vector3.new(1.4, height + 1.8, 0.5),
+			Enum.Material.Fabric, COLORS.Velvet, false)
+	end
+	put(m, "CurtainRod", at, Vector3.new(0, sill + height + 1.4, -0.9), Vector3.new(width + 4.4, 0.2, 0.2),
+		Enum.Material.Metal, COLORS.Gold, false)
+end
+
+-- A flat stand-in window, used only if the castle was built without real windows
+local function fakeWindow(parent, at)
 	local m = Instance.new("Model")
 	m.Name = "Window"
 	m:SetAttribute("IsOpen", false)
@@ -360,12 +379,27 @@ local function furnish(room)
 	end
 
 	-- Window on the far wall, to the left of the bed
-	local windowX = -(halfW - 6)
-	window(folder, frame(windowX, farZ, 180)) -- turned 180 so it faces into the room
+	-- The window: CastleBuilder cut a real one into the far wall and put a Model called "Window"
+	-- in this room. Find where it is (in room space) and hang curtains around it.
+	local windowW, windowH, windowSill, windowX = 6, 9.6, 5.0, -(halfW - 6)
+	local realWindow = room:FindFirstChild("Window")
+	if realWindow then
+		windowW = realWindow:GetAttribute("Width")
+		windowH = realWindow:GetAttribute("Height")
+		windowSill = realWindow:GetAttribute("SillHeight") - 0.2 -- measured from the floor finish, not the slab
+		local inRoomSpace = at:PointToObjectSpace(Vector3.new(realWindow:GetAttribute("CenterX"), floorY, doorWallZ))
+		windowX = inRoomSpace.X
+		curtains(folder, frame(windowX, farZ, 180), windowW, windowH, windowSill) -- turned 180 so it faces into the room
+	else
+		warn(room.Name .. " has no window (build the castle with the new CastleBuilder). Using a flat stand-in.")
+		fakeWindow(folder, frame(windowX, farZ, 180))
+	end
 
 	-- Armchair and side table in the far right corner, facing the door
-	armchair(folder, frame(halfW - 8, farZ + 2.0, 180))
-	sideTable(folder, frame(halfW - 2.2, farZ + 1.6))
+	-- (on the side away from the window)
+	local armSide = (windowX <= 0) and 1 or -1
+	armchair(folder, frame(armSide * (halfW - 8), farZ + 2.0, 180))
+	sideTable(folder, frame(armSide * (halfW - 2.2), farZ + 1.6))
 
 	-- Wardrobe on the left wall, facing the room (yaw -90 faces +X)
 	local sideZ = farZ + 14
@@ -384,7 +418,7 @@ local function furnish(room)
 
 	-- Lift wall candles that landed on top of the furniture
 	local margin = 1.5
-	liftSconces(room, at, floorY, windowX - 3.8 - margin, windowX + 3.8 + margin, farZ - 1, farZ + 2.5, 15.4)
+	liftSconces(room, at, floorY, windowX - windowW / 2 - margin, windowX + windowW / 2 + margin, farZ - 1, farZ + 2.5, windowSill + windowH)
 	liftSconces(room, at, floorY, -5.3, 5.3, farZ - 1, farZ + 2.5, 5.5)
 	liftSconces(room, at, floorY, -halfW - 1, -halfW + 4, sideZ - 3 - margin, sideZ + 3 + margin, 9.4)
 	liftSconces(room, at, floorY, halfW - 4, halfW + 1, sideZ - 1.8 - margin, sideZ + 1.8 + margin, 11.4)

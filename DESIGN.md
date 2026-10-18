@@ -22,6 +22,7 @@ night. Survive 7 days before the police arrive.
 | Vampire helpers | Make later nights harder (can undo protections) |
 | Dracula | A visible monster (placeholder figure for now). Wakes 12 s after nightfall, hunts 1, 1, 2, 2, 2, 3, 3 guests on nights 1-7, walks at 12 (players 16). Touching a player throws them back and stuns them 6 s. Never kills players. |
 | Dracula's powers | `DraculaPowers` (shadow pool, teleport, bats) handles him rising at nightfall and sinking at dawn. `DraculaManager` hunts: it walks to guests that are close and teleports (with the warning pool) to the corridor outside rooms that are far (`TeleportIfFartherThan`). Keep `DraculaPowers`' `DEMO` off. |
+| Windows | Real glass windows in every outer-wall room (35 of them): a Model called `Window` inside each room, tagged `CastleWindow`, with a glass `Sash` and attribute `IsOpen`. The chapel glows blue and Dracula's chamber red. The "close the window" protection will use these. |
 | Doors | 16 guest room doors and a front double door. Anyone can lock or unlock; only players can. |
 | Locked doors | Dracula can't walk through. He breaks it down (4 s, with noise), then it stays broken until morning. `DoorControl.Settings.DraculaCanBreak = false` makes a lock absolute. |
 

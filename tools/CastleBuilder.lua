@@ -13,6 +13,10 @@
       on every stair post (they flicker when you press Play)
     * outside: thick stone walls, battlements, 4 corner towers and
       an entrance gatehouse with the grand gothic window
+    * real WINDOWS in the outer walls: glass you can see through, iron
+      bars, a stone surround and a sill. Each room on an outer wall gets
+      them (halls get tall pointed ones, guest rooms one each). They are
+      Models called "Window" inside their room, tagged "CastleWindow".
 
   HOW TO USE
     1. Stop Play mode first (anything built while testing is lost).
@@ -322,6 +326,99 @@ for _, r in ipairs(ROOMS) do
 	end
 end
 
+------------------------------------------------------------------------
+-- WINDOWS
+-- An opening is an opening, so windows are added to the same list as doors,
+-- with a raised sill (how high above the floor they start). The wall
+-- builder then cuts them for us. Further down, the window builder fills
+-- each opening with glass, bars and a stone surround.
+--
+-- Rules, by room name. count = windows along the wall, w = width, h = height,
+-- sill = height of the bottom above the floor, arch = a stepped pointed top.
+------------------------------------------------------------------------
+local WINDOW_RULES = {
+	["Dining Hall"]       = { count = 3, w = 7, h = 16, sill = 5, arch = true },
+	["Great Hall"]        = { count = 3, w = 7, h = 16, sill = 5, arch = true },
+	["Library"]           = { count = 2, w = 6, h = 14, sill = 6, arch = true },
+	["Parlor"]            = { count = 2, w = 6, h = 14, sill = 6, arch = true },
+	["Kitchen"]           = { count = 1, w = 5, h = 6, sill = 10, arch = false },
+	["Dracula's Study"]   = { count = 1, w = 6, h = 12, sill = 6, arch = true },
+	["Ballroom"]          = { count = 4, w = 8, h = 16, sill = 5, arch = true },
+	["Portrait Gallery"]  = { count = 2, w = 6, h = 14, sill = 6, arch = true },
+	-- stained glass: Dracula's chamber glows red, the chapel is blue
+	["Dracula's Chamber"] = { count = 1, w = 7, h = 14, sill = 6, arch = true, glass = Color3.fromRGB(150, 40, 60), glassTransparency = 0.4 },
+	["Chapel"]            = { count = 1, w = 8, h = 16, sill = 5, arch = true, glass = Color3.fromRGB(70, 90, 170), glassTransparency = 0.35 },
+	["Observatory"]       = { count = 1, w = 14, h = 12, sill = 6, arch = false },
+}
+-- Every guest room gets one window (the Crypt, lobby, corridors and stair halls get none)
+local GUEST_WINDOW = { count = 1, w = 6, h = 9.6, sill = 5.2, arch = false }
+
+local GATE_X = 24         -- the entrance gatehouse covers the front wall from -24 to 24 (keep in step with GATE_HALF below)
+local TOWER_MARGIN = 14   -- keep windows this far from the castle's ends, where the corner towers are
+
+-- Is a window centred at `center`, `w` wide, allowed there? Not in front of the
+-- gatehouse (it would look out onto solid stone), not inside a corner tower.
+-- Returns the position (nudged back from a tower if needed), or nil if it can't go there.
+local function fitWindow(at, center, w, lo, hi)
+	local limit = HALF_W - TOWER_MARGIN - w / 2
+	center = math.max(-limit, math.min(limit, center))
+	if center < lo or center > hi then
+		return nil
+	end
+	if at > 0 and math.abs(center) - w / 2 < GATE_X + 1 then
+		return nil
+	end
+	return center
+end
+
+local WINDOW_LIST = {} -- every window that was placed, for the window builder
+local ROOM_MODELS = {} -- room table -> its Model (filled in by buildRoom)
+for _, r in ipairs(ROOMS) do
+	-- which of the outer walls does this room touch?
+	local at, out
+	if r.z1 == HALF_D then
+		at, out = HALF_D, 1        -- the front wall
+	elseif r.z0 == -HALF_D then
+		at, out = -HALF_D, -1      -- the back wall
+	end
+	local rule = (r.kind == "Guest") and GUEST_WINDOW or WINDOW_RULES[r.name]
+	if at and rule then
+		local lo = r.x0 + T + rule.w / 2 + 1.5
+		local hi = r.x1 - T - rule.w / 2 - 1.5
+		local centers = {}
+		if r.kind == "Guest" then
+			-- beside the bed, which is in the middle of the wall. Try one side, then the other.
+			local middle = (r.x0 + r.x1) / 2
+			local reach = (r.x1 - r.x0) / 2 - T - 6
+			local side = (r.z0 >= 0) and 1 or -1
+			for _, s in ipairs({ side, -side }) do
+				local c = fitWindow(at, middle + s * reach, rule.w, lo, hi)
+				if c then
+					table.insert(centers, c)
+					break
+				end
+			end
+		else
+			local segment = (r.x1 - r.x0 - 2 * T) / rule.count
+			for i = 1, rule.count do
+				local c = fitWindow(at, r.x0 + T + (i - 0.5) * segment, rule.w, lo, hi)
+				-- skip one that would land on top of the one before it
+				if c and (#centers == 0 or c - centers[#centers] > rule.w + 2) then
+					table.insert(centers, c)
+				end
+			end
+		end
+		for _, c in ipairs(centers) do
+			table.insert(DOORS, { floor = r.floor, w = rule.w, h = rule.h, sill = rule.sill, line = "z", at = at, center = c })
+			table.insert(WINDOW_LIST, {
+				room = r, floor = r.floor, at = at, out = out, center = c,
+				w = rule.w, h = rule.h, sill = rule.sill, arch = rule.arch,
+				glass = rule.glass, glassTransparency = rule.glassTransparency,
+			})
+		end
+	end
+end
+
 -- Finds the doorways in a wall that sits on the line x = at or z = at,
 -- between a0 and a1. onlyFloor = nil means "any floor" (used for the outer walls).
 local function gapsOnLine(line, at, a0, a1, onlyFloor)
@@ -329,7 +426,7 @@ local function gapsOnLine(line, at, a0, a1, onlyFloor)
 	for _, d in ipairs(DOORS) do
 		if d.line == line and math.abs(d.at - at) < 0.01 and d.center > a0 and d.center < a1
 			and (onlyFloor == nil or d.floor == onlyFloor) then
-			local bottom = LEVEL[d.floor]
+			local bottom = LEVEL[d.floor] + (d.sill or 0) -- windows start higher than the floor (the sill)
 			table.insert(gaps, { s = d.center - d.w / 2, e = d.center + d.w / 2, bottom = bottom, top = bottom + d.h })
 		end
 	end
@@ -358,6 +455,53 @@ local function doorFrame(parent, along, s, e, c0, c1, yb, yt)
 	piece(s - 1, s, yb, yt + 1.2)
 	piece(e, e + 1, yb, yt + 1.2)
 	piece(s - 1, e + 1, yt, yt + 1.2)
+end
+
+-- Builds one straight wall with openings cut out of it, where openings may be stacked
+-- above each other (the same window on floors 2 and 3). Same arguments as wallRun
+-- below, but only for walls with a fixed texture size (the outer walls).
+-- It cuts the wall into vertical strips at every opening's edges, and in each strip
+-- builds the solid pieces between the openings.
+local function wallGrid(parent, name, along, a0, a1, c0, c1, y0, y1, gaps, faces)
+	local xs = { a0, a1 }
+	for _, g in ipairs(gaps) do
+		table.insert(xs, math.max(a0, math.min(a1, g.s)))
+		table.insert(xs, math.max(a0, math.min(a1, g.e)))
+	end
+	table.sort(xs)
+
+	local function piece(s, e, yb, yt)
+		local p
+		if along == "X" then
+			p = box(parent, name, s, e, yb, yt, c0, c1)
+		else
+			p = box(parent, name, c0, c1, yb, yt, s, e)
+		end
+		if not p then return end
+		for _, spec in ipairs(faces) do
+			addTexture(p, spec.tex, spec.face, spec.tile or (y1 - y0), spec.tile or (y1 - y0))
+		end
+	end
+
+	for i = 1, #xs - 1 do
+		local xa, xb = xs[i], xs[i + 1]
+		if xb - xa > 0.05 then
+			-- the openings that go right through this strip, lowest first
+			local holes = {}
+			for _, g in ipairs(gaps) do
+				if g.s <= xa + 0.01 and g.e >= xb - 0.01 then
+					table.insert(holes, g)
+				end
+			end
+			table.sort(holes, function(g1, g2) return g1.bottom < g2.bottom end)
+			local cursor = y0
+			for _, g in ipairs(holes) do
+				if g.bottom > cursor + 0.05 then piece(xa, xb, cursor, g.bottom) end
+				cursor = math.max(cursor, g.top)
+			end
+			if y1 > cursor + 0.05 then piece(xa, xb, cursor, y1) end
+		end
+	end
 end
 
 -- Builds one straight wall with doorways cut out of it.
@@ -549,6 +693,28 @@ local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local recording
 pcall(function() recording = ChangeHistoryService:TryBeginRecording("Build Dracula's Castle") end)
 
+-- Rescue your coffin before the old castle is deleted. If a model called
+-- DraculaCoffin is inside it, it's moved to ServerStorage > Assets, where
+-- tools/CryptBuilder.lua finds it and puts it back in the new crypt.
+local oldCastle = workspace:FindFirstChild("DraculaCastle")
+if oldCastle then
+	for _, object in ipairs(oldCastle:GetDescendants()) do
+		if object:IsA("Model") and object.Name == "DraculaCoffin" then
+			local ServerStorage = game:GetService("ServerStorage")
+			local assets = ServerStorage:FindFirstChild("Assets") or Instance.new("Folder")
+			assets.Name = "Assets"
+			assets.Parent = ServerStorage
+			local oldCopy = assets:FindFirstChild("DraculaCoffin")
+			if oldCopy then
+				oldCopy:Destroy()
+			end
+			object.Parent = assets
+			print("Moved your DraculaCoffin to ServerStorage > Assets so it isn't deleted. Run CryptBuilder.lua to put it back.")
+			break
+		end
+	end
+end
+
 -- Clear out the old castle and the old test hall
 for _, oldName in ipairs({ "DraculaCastle", "Floor_MainHall", "Walls_MainHall", "Ceiling_MainHall", "Lights_MainHall" }) do
 	local old = workspace:FindFirstChild(oldName)
@@ -667,6 +833,7 @@ local function buildRoom(r)
 	model:SetAttribute("Floor", f)
 	if r.number then model:SetAttribute("RoomNumber", r.number) end
 	model.Parent = FLOOR_FOLDERS[f]
+	ROOM_MODELS[r] = model -- so the window builder can put each window inside its room
 
 	-- inside edges of the room (inside the walls)
 	local ix0, ix1, iz0, iz1 = r.x0 + T, r.x1 - T, r.z0 + T, r.z1 - T
@@ -802,13 +969,13 @@ end
 local W2, D2 = HALF_W + SHELL_T, HALF_D + SHELL_T -- outside edge of the outer walls
 
 -- the four outer walls (outside: windows & gargoyles; inside: plain stone)
-wallRun(exterior, "OuterWall", "X", -W2, W2, HALF_D, D2, 0, SHELL_TOP, gapsOnLine("z", HALF_D, -W2, W2),
+wallGrid(exterior, "OuterWall", "X", -W2, W2, HALF_D, D2, 0, SHELL_TOP, gapsOnLine("z", HALF_D, -W2, W2),
 	{ { face = Enum.NormalId.Back, tex = TEX.EXTERIOR, tile = 48 }, { face = Enum.NormalId.Front, tex = TEX.STONE_WALL, tile = 24 } }, false)
-wallRun(exterior, "OuterWall", "X", -W2, W2, -D2, -HALF_D, 0, SHELL_TOP, gapsOnLine("z", -HALF_D, -W2, W2),
+wallGrid(exterior, "OuterWall", "X", -W2, W2, -D2, -HALF_D, 0, SHELL_TOP, gapsOnLine("z", -HALF_D, -W2, W2),
 	{ { face = Enum.NormalId.Front, tex = TEX.EXTERIOR, tile = 48 }, { face = Enum.NormalId.Back, tex = TEX.STONE_WALL, tile = 24 } }, false)
-wallRun(exterior, "OuterWall", "Z", -HALF_D, HALF_D, -W2, -HALF_W, 0, SHELL_TOP, gapsOnLine("x", -HALF_W, -HALF_D, HALF_D),
+wallGrid(exterior, "OuterWall", "Z", -HALF_D, HALF_D, -W2, -HALF_W, 0, SHELL_TOP, gapsOnLine("x", -HALF_W, -HALF_D, HALF_D),
 	{ { face = Enum.NormalId.Left, tex = TEX.EXTERIOR, tile = 48 }, { face = Enum.NormalId.Right, tex = TEX.STONE_WALL, tile = 24 } }, false)
-wallRun(exterior, "OuterWall", "Z", -HALF_D, HALF_D, HALF_W, W2, 0, SHELL_TOP, gapsOnLine("x", HALF_W, -HALF_D, HALF_D),
+wallGrid(exterior, "OuterWall", "Z", -HALF_D, HALF_D, HALF_W, W2, 0, SHELL_TOP, gapsOnLine("x", HALF_W, -HALF_D, HALF_D),
 	{ { face = Enum.NormalId.Right, tex = TEX.EXTERIOR, tile = 48 }, { face = Enum.NormalId.Left, tex = TEX.STONE_WALL, tile = 24 } }, false)
 
 -- battlements: a row of stone blocks along the top of a wall
@@ -904,6 +1071,74 @@ if lobbyDoor then
 end
 
 ------------------------------------------------------------------------
+-- 12b. WINDOWS: glass, bars, stone surround and sills
+-- The wall builder already left the openings (see WINDOW_LIST above).
+-- Each window is a Model called "Window" inside its room, with:
+--   Sash           the glass pane (a script can open or break it later)
+--   MullionV/H     the iron bars
+--   TrimPost/Lintel, SillOut, SillIn   the stone surround and sills
+--   ArchFill       stone steps that turn the top into a pointed arch
+-- and attributes IsOpen (false), CenterX, Width, Height, SillHeight, Floor.
+------------------------------------------------------------------------
+local GLASS_COLOR = Color3.fromRGB(170, 195, 215)
+local windowCount = 0
+for _, wnd in ipairs(WINDOW_LIST) do
+	local model = Instance.new("Model")
+	model.Name = "Window"
+	model:SetAttribute("IsOpen", false)
+	model:SetAttribute("CenterX", ORIGIN.X + wnd.center)
+	model:SetAttribute("Width", wnd.w)
+	model:SetAttribute("Height", wnd.h)
+	model:SetAttribute("SillHeight", wnd.sill)
+	model:SetAttribute("Floor", wnd.floor)
+	model.Parent = ROOM_MODELS[wnd.room] or exterior
+	CollectionService:AddTag(model, "CastleWindow")
+
+	local out = wnd.out                       -- +1 on the front wall, -1 on the back wall
+	local zIn = wnd.at - out * 1              -- the inside face of the room's wall
+	local zOut = wnd.at + out * 2             -- the outside face of the outer wall
+	local mid = (zIn + zOut) / 2
+	local c, w, h = wnd.center, wnd.w, wnd.h
+	local yb = LEVEL[wnd.floor] + wnd.sill
+	local yt = yb + h
+
+	-- the glass
+	local glass = box(model, "Sash", c - w / 2, c + w / 2, yb, yt, mid - 0.08, mid + 0.08, Enum.Material.Glass, wnd.glass or GLASS_COLOR)
+	if glass then
+		glass.Transparency = wnd.glassTransparency or 0.5
+	end
+
+	-- iron bars: one upright down the middle, and one or two crossbars
+	box(model, "MullionV", c - 0.12, c + 0.12, yb, yt, mid - 0.14, mid + 0.14, Enum.Material.Metal, COLORS.Iron)
+	for _, fraction in ipairs((h >= 12) and { 0.3, 0.62 } or { 0.55 }) do
+		local y = yb + h * fraction
+		box(model, "MullionH", c - w / 2, c + w / 2, y - 0.1, y + 0.1, mid - 0.14, mid + 0.14, Enum.Material.Metal, COLORS.Iron)
+	end
+
+	-- the stone surround on the outside: two posts and a lintel
+	local o0, o1 = zOut, zOut + out * 0.4
+	box(model, "TrimPost", c - w / 2 - 0.8, c - w / 2, yb - 0.2, yt + 0.9, o0, o1, Enum.Material.Slate, COLORS.Trim)
+	box(model, "TrimPost", c + w / 2, c + w / 2 + 0.8, yb - 0.2, yt + 0.9, o0, o1, Enum.Material.Slate, COLORS.Trim)
+	box(model, "TrimLintel", c - w / 2 - 0.8, c + w / 2 + 0.8, yt, yt + 0.9, o0, o1, Enum.Material.Slate, COLORS.Trim)
+
+	-- a sill that sticks out on the outside, and a shelf on the inside
+	box(model, "SillOut", c - w / 2 - 0.8, c + w / 2 + 0.8, yb - 0.5, yb + 0.1, zOut, zOut + out * 0.9, Enum.Material.Slate, COLORS.Trim)
+	box(model, "SillIn", c - w / 2 - 0.4, c + w / 2 + 0.4, yb - 0.1, yb + 0.15, zIn, zIn - out * 0.7, Enum.Material.Slate, COLORS.Trim)
+
+	-- a pointed top: three stone steps, each one narrowing the opening a little more
+	if wnd.arch then
+		local steps, stepHeight = 3, 0.9
+		for k = 0, steps - 1 do
+			local inset = (steps - k) * 0.55
+			local lowY, highY = yt - (k + 1) * stepHeight, yt - k * stepHeight
+			box(model, "ArchFill", c - w / 2, c - w / 2 + inset, lowY, highY, zIn, zOut, Enum.Material.Slate, COLORS.Trim)
+			box(model, "ArchFill", c + w / 2 - inset, c + w / 2, lowY, highY, zIn, zOut, Enum.Material.Slate, COLORS.Trim)
+		end
+	end
+	windowCount = windowCount + 1
+end
+
+------------------------------------------------------------------------
 -- 13. LIGHTING AND FLICKERING CANDLES
 ------------------------------------------------------------------------
 local Lighting = game:GetService("Lighting")
@@ -985,5 +1220,5 @@ local roomCount = 0
 for _, r in ipairs(ROOMS) do
 	if not r.isStair then roomCount += 1 end
 end
-print(string.format("Castle built! %d rooms on %d floors, %d candles (%d lights), %d parts. Press F to zoom to it.",
-	roomCount, NUM_FLOORS, candleCount, lightCount, partCount))
+print(string.format("Castle built! %d rooms on %d floors, %d windows, %d candles (%d lights), %d parts. Press F to zoom to it.",
+	roomCount, NUM_FLOORS, windowCount, candleCount, lightCount, partCount))
