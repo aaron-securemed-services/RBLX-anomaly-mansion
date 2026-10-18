@@ -20,6 +20,8 @@ night. Survive 7 days before the police arrive.
 | Feeding outcome | 50/50: the guest dies, or is half-drained |
 | Half-drained | Becomes a vampire helper at the next nightfall |
 | Vampire helpers | Make later nights harder (can undo protections) |
+| Doors | 16 guest room doors and a front double door. Anyone can lock or unlock; only players can. |
+| Locked doors | Dracula can't walk through. He breaks it down (4 s, with noise), then it stays broken until morning. `DoorControl.Settings.DraculaCanBreak = false` makes a lock absolute. |
 
 ## Victim traits
 Each guest gets random traits (see `src/shared/GuestTraits.lua`). Every trait has:
@@ -39,6 +41,7 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
 ## Controls
 - Talk to a guest: **E** (keyboard) or **A** on Xbox / **X (cross)** on PlayStation.
 - Guest card: click/tap, or D-pad/stick to move and A/X to press. **B** / **circle** closes it.
+- Doors: **E** / A / cross opens or closes, **F** / X / square locks or unlocks (a short hold).
 - Key boards behind the desk: same buttons. They list every room and who is staying in it, with the clues
   you noticed. A room's key leaves the board when its guest checks in.
 
@@ -48,7 +51,7 @@ with subtler clues. Red herrings (suspicious guests who are safe) come later.
    - [ ] Furnish common rooms (dining hall, great hall, kitchen, library, parlor)
    - [x] Crypt with Dracula's coffin (CryptBuilder.lua)
    - [ ] Furnish the rest of Dracula's areas (chamber, study, chapel, observatory) and the ballroom and gallery
-   - [ ] Door leaves that open, close and lock (needed for the LockDoor counter)
+   - [x] Door leaves that open, close and lock (DoorBuilder.lua + DoorControl)
 3. [ ] Guest arrival, traits and check-in (GuestManager, in progress)
 4. [x] Clue display for players (guest card UI, with keyboard, mouse, touch and controller support)
 5. [ ] Dracula: visible monster that picks a target and hunts

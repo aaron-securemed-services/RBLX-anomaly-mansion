@@ -15,12 +15,14 @@ location below and paste the file's contents in.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript |
 | `src/shared/GuestTraits.lua` | ReplicatedStorage/GuestTraits | ModuleScript |
 | `src/server/GuestManager.server.lua` | ServerScriptService/GuestManager | Script |
+| `src/server/DoorControl.lua` | ServerScriptService/DoorControl | **ModuleScript** |
+| `src/server/DoorManager.server.lua` | ServerScriptService/DoorManager | Script |
 | `src/client/GuestCard.client.lua` | StarterPlayer/StarterPlayerScripts/GuestCard | LocalScript |
 | `src/client/KeyBoard.client.lua` | StarterPlayer/StarterPlayerScripts/KeyBoard | LocalScript |
 
 The `tools/` scripts are not game scripts. Paste each into the Command Bar, in this order:
 `CastleBuilder.lua` (builds the castle), `LobbyBuilder.lua` (furnishes the lobby), `GuestRoomBuilder.lua`
-(furnishes the 16 guest rooms), `CryptBuilder.lua` (moves your coffin into the Crypt, scales it, and stands it against the back wall
+(furnishes the 16 guest rooms), `DoorBuilder.lua` (the front double door and 16 guest room doors), `CryptBuilder.lua` (moves your coffin into the Crypt, scales it, and stands it against the back wall
 facing the door; a model named `DraculaCoffin` anywhere in the place works). Re-running CastleBuilder wipes everything, so re-run the others after it.
 See `DESIGN.md` for the game design and build order.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript (the Castle Builder creates this for you) |
