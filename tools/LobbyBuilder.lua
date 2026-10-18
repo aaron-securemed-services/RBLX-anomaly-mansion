@@ -11,6 +11,7 @@
       them later, for example to take a key down when a guest checks in)
     * two grandfather clocks against the back wall
     * a red runner rug from the front door to the desk
+    * any wall candles that land on a key board are lifted just above it
     * two waiting lounges (sofa, coffee table, two armchairs, rug) on
       either side of the runner. Players can sit on the cushions.
 
@@ -259,6 +260,38 @@ if ADD_FURNITURE then
 				local key = put(furniture, "Key_" .. number, at, Vector3.new(hx, hy - 0.5, 0.85),
 					Vector3.new(0.35, 0.7, 0.1), Enum.Material.Metal, COLORS.Gold, false)
 				key:SetAttribute("RoomNumber", number)
+			end
+		end
+	end
+
+	----------------------------------------------------------------------
+	-- MOVE WALL CANDLES OUT OF THE WAY
+	-- The castle builder hangs wall candles (sconces) along the back wall at
+	-- about the height of the key boards, and two of them land on a board.
+	-- Lift any sconce that overlaps a board to just above its frame. It
+	-- keeps its light, it just no longer sits in front of the keys.
+	----------------------------------------------------------------------
+	local SCONCE_PARTS = { SconceArm = true, SconceCup = true, Candle = true, Flame = true }
+	local liftedCount = 0
+	for _, plate in ipairs(lobby:GetChildren()) do
+		if plate.Name == "SconcePlate" and plate:IsA("BasePart") then
+			local pos = plate.Position
+			local onBackWall = pos.Z < z0 + 3
+			local atBoardHeight = pos.Y > floorY + 3 and pos.Y < floorY + 11
+			local overBoard = math.abs(math.abs(pos.X - cx) - 13.5) < 6.2 -- within a board's width, left or right
+			if onBackWall and atBoardHeight and overBoard then
+				local lift = (floorY + 13.2) - pos.Y -- puts the plate 13.2 studs above the floor
+				-- the sconce is the plate plus its arm, cup, candle and flame, which
+				-- all sit within a couple of studs of the plate
+				for _, piece in ipairs(lobby:GetChildren()) do
+					if piece == plate or (SCONCE_PARTS[piece.Name] and piece:IsA("BasePart")) then
+						local offset = piece.Position - pos
+						if math.abs(offset.X) < 2 and math.abs(offset.Z) < 2 and math.abs(offset.Y) < 3 then
+							piece.Position = piece.Position + Vector3.new(0, lift, 0)
+						end
+					end
+				end
+				liftedCount = liftedCount + 1
 			end
 		end
 	end
