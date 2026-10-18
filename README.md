@@ -23,7 +23,7 @@ location below and paste the file's contents in.
 The `tools/` scripts are not game scripts. Paste each into the Command Bar, in this order:
 `CastleBuilder.lua` (builds the castle), `LobbyBuilder.lua` (furnishes the lobby), `GuestRoomBuilder.lua`
 (furnishes the 16 guest rooms), `DoorBuilder.lua` (the front double door and 16 guest room doors), `CryptBuilder.lua` (moves your coffin into the Crypt, scales it, and stands it against the back wall
-facing the door; a model named `DraculaCoffin` anywhere in the place works). Re-running CastleBuilder wipes everything, so re-run the others after it.
+facing the door; a model named `DraculaCoffin` anywhere in the place works), then `DraculaRigBuilder.lua` (import `Dracula_Rig.glb`, select it, run: builds Dracula as an animated R15 NPC in `Workspace/NPCs/Dracula`, standing on the Crypt's `DraculaSpawn` marker). Re-running CastleBuilder wipes everything, so re-run the others after it.
 See `DESIGN.md` for the game design and build order.
 | `src/client/CandleFlicker.client.lua` | StarterPlayer/StarterPlayerScripts/CandleFlicker | LocalScript (the Castle Builder creates this for you) |
 
