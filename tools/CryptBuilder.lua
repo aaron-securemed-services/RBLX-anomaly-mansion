@@ -146,6 +146,17 @@ for _, child in ipairs(crypt:GetChildren()) do
 	end
 end
 
+-- Also remove the castle builder's leftover floor candles (the ones that stood
+-- beside its block coffin). Wall and chandelier candles hang much higher, and
+-- candles on furniture are inside other objects, so they're not touched.
+local roomFloorY = zone.Position.Y - zone.Size.Y / 2 + 0.2
+for _, child in ipairs(crypt:GetChildren()) do
+	local isCandle = child.Name == "Candle" or child.Name == "Flame"
+	if isCandle and child:IsA("BasePart") and child.Position.Y - roomFloorY < 2 then
+		child:Destroy()
+	end
+end
+
 ------------------------------------------------------------------------
 -- 4. HELPER FUNCTION
 ------------------------------------------------------------------------
